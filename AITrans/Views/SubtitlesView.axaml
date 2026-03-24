@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AITrans.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="AITrans.Views.SubtitlesView"
+             x:DataType="vm:SubtitlesViewModel">
+
+  <DockPanel Margin="10">
+    <!-- Top Controls -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
+      <Button x:Name="OpenFileBtn" Content="📂 Open SRT" Click="OnOpenFileClick" />
+      <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguage}" Width="150" />
+      <Button Content="▶ Translate All" Command="{Binding TranslateCommand}" />
+      <Button Content="▶ Selected" Command="{Binding TranslateSelectedCommand}" ToolTip.Tip="Translate only selected rows" />
+      <Button Content="▶ From Here" Command="{Binding TranslateFromSelectedCommand}" ToolTip.Tip="Translate from selected row to end" />
+      <Button Content="⏹ Cancel" Command="{Binding CancelTranslationCommand}" IsVisible="{Binding IsTranslating}" />
+      <Button x:Name="SaveFileBtn" Content="💾 Save" Click="OnSaveFileClick" />
+      <ProgressBar IsVisible="{Binding IsTranslating}" Value="{Binding Progress}" Maximum="100" Width="200" MinHeight="20" />
+    </StackPanel>
+
+    <!-- File path indicator -->
+    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadedFilePath}" Margin="0,0,0,5" FontSize="12" Opacity="0.6"
+               IsVisible="{Binding LoadedFilePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+    <!-- Status bar -->
+    <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusText}" Margin="0,5,0,0" Opacity="0.7" TextWrapping="Wrap" />
+
+    <!-- Subtitle entries (DataGrid) -->
+    <DataGrid x:Name="SubtitleGrid"
+              x:CompileBindings="False"
+              ItemsSource="{Binding Entries}"
+              AutoGenerateColumns="False"
+              CanUserReorderColumns="False"
+              CanUserResizeColumns="True"
+              GridLinesVisibility="Horizontal"
+              SelectionMode="Extended"
+              IsReadOnly="False">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
+        <DataGridTextColumn Header="Time" Binding="{Binding TimeCode}" Width="180" IsReadOnly="True" />
+        <DataGridTextColumn Header="Original" Binding="{Binding OriginalText}" Width="*" IsReadOnly="True" />
+        <DataGridTextColumn Header="Translation" Binding="{Binding TranslatedText}" Width="*" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

@@ -1,0 +1,119 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AITrans.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             x:Class="AITrans.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+  <ScrollViewer>
+    <StackPanel Margin="20" Spacing="15" MaxWidth="500" HorizontalAlignment="Left">
+      <TextBlock Text="Settings" FontSize="24" FontWeight="Bold" Margin="0,0,0,10" />
+
+      <!-- Provider -->
+      <StackPanel Spacing="5">
+        <TextBlock Text="AI Provider" FontWeight="SemiBold" />
+        <ComboBox ItemsSource="{Binding AvailableProviders}" SelectedItem="{Binding SelectedProvider}" Width="250" />
+      </StackPanel>
+
+      <Separator Margin="0,5" />
+
+      <!-- OpenAI settings -->
+      <StackPanel Spacing="10" IsVisible="{Binding IsOpenAi}">
+        <TextBlock Text="OpenAI" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="API Key" />
+          <TextBox Text="{Binding OpenAiApiKey}" PasswordChar="•" Watermark="sk-..." />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding OpenAiModels}" SelectedItem="{Binding OpenAiModel}" Width="250" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- GitHub Copilot settings -->
+      <StackPanel Spacing="10" IsVisible="{Binding IsGitHubCopilot}">
+        <TextBlock Text="GitHub Copilot" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="API Key / Token" />
+          <TextBox Text="{Binding GitHubCopilotApiKey}" PasswordChar="•" Watermark="ghp_..." />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding GitHubCopilotModels}" SelectedItem="{Binding GitHubCopilotModel}" Width="250" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button Content="🔄 Fetch available models" Command="{Binding FetchGitHubModelsCommand}" IsEnabled="{Binding !IsFetchingModels}" Padding="12,6" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Gemini settings -->
+      <StackPanel Spacing="10" IsVisible="{Binding IsGemini}">
+        <TextBlock Text="Google Gemini" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="API Key" />
+          <TextBox Text="{Binding GeminiApiKey}" PasswordChar="•" Watermark="AIza..." />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding GeminiModels}" SelectedItem="{Binding GeminiModel}" Width="250" />
+        </StackPanel>
+        <TextBlock Text="Get a free API key at https://aistudio.google.com/app/apikey" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <!-- OpenRouter settings -->
+      <StackPanel Spacing="10" IsVisible="{Binding IsOpenRouter}">
+        <TextBlock Text="OpenRouter" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="API Key" />
+          <TextBox Text="{Binding OpenRouterApiKey}" PasswordChar="•" Watermark="sk-or-..." />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding OpenRouterModel}" Width="250" />
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <ToggleSwitch IsChecked="{Binding OpenRouterAutoRotate}" OnContent="Auto-rotate free models" OffContent="Use selected model only" />
+          <TextBlock Text="Automatically cycles through free models per batch. On 429 error, switches to the next model." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button Content="🔄 Fetch free models" Command="{Binding FetchFreeModelsCommand}" IsEnabled="{Binding !IsFetchingModels}" Padding="12,6" />
+          <TextBlock Text="{Binding FreeModelCount}" VerticalAlignment="Center" FontSize="12" Opacity="0.7" />
+        </StackPanel>
+      </StackPanel>
+
+      <Separator Margin="0,5" />
+
+      <!-- Default Language -->
+      <StackPanel Spacing="5">
+        <TextBlock Text="Default Target Language" FontWeight="SemiBold" />
+        <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding DefaultLanguage}" Width="250" />
+      </StackPanel>
+
+      <!-- Rate Limiting -->
+      <Separator Margin="0,5" />
+      <TextBlock Text="Rate Limiting" FontSize="16" FontWeight="SemiBold" />
+
+      <StackPanel Spacing="5">
+        <TextBlock Text="Subtitle lines per batch" />
+        <NumericUpDown Value="{Binding BatchSize}" Minimum="5" Maximum="100" Increment="5" Width="150" />
+        <TextBlock Text="More lines per batch = fewer API calls, but may hit token limits" FontSize="11" Opacity="0.6" />
+      </StackPanel>
+
+      <StackPanel Spacing="5">
+        <TextBlock Text="Delay between requests (ms)" />
+        <NumericUpDown Value="{Binding DelayBetweenRequestsMs}" Minimum="0" Maximum="30000" Increment="500" Width="150" />
+        <TextBlock Text="GitHub free tier: 2000-3000ms recommended. 0 = no delay." FontSize="11" Opacity="0.6" />
+      </StackPanel>
+
+      <!-- Save Button -->
+      <Button Content="💾 Save Settings" Command="{Binding SaveCommand}" HorizontalAlignment="Left" Padding="20,8" />
+
+      <!-- Status -->
+      <TextBlock Text="{Binding StatusText}" Foreground="Green"
+                 TextWrapping="Wrap"
+                 IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
