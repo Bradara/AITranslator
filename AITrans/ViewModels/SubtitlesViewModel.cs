@@ -15,6 +15,7 @@ public partial class SubtitlesViewModel : ViewModelBase
 {
     private readonly TranslationService _translationService;
     private readonly SettingsService _settingsService;
+    private readonly CacheService _cacheService;
     private CancellationTokenSource? _cts;
 
     [ObservableProperty]
@@ -35,6 +36,12 @@ public partial class SubtitlesViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusText = "Ready";
 
+    [ObservableProperty]
+    private string _cacheInfo = "";
+
+    [ObservableProperty]
+    private bool _hasCache;
+
     // Indices selected in the DataGrid
     private List<int> _selectedIndices = [];
 
@@ -42,11 +49,13 @@ public partial class SubtitlesViewModel : ViewModelBase
 
     public bool HasEntries => Entries.Count > 0;
 
-    public SubtitlesViewModel(TranslationService translationService, SettingsService settingsService)
+    public SubtitlesViewModel(TranslationService translationService, SettingsService settingsService, CacheService cacheService)
     {
         _translationService = translationService;
         _settingsService = settingsService;
+        _cacheService = cacheService;
         SelectedLanguage = settingsService.Settings.DefaultLanguage;
+        UpdateCacheInfo(null);
     }
 
     public void SetSelectedIndices(List<int> indices)
@@ -61,12 +70,67 @@ public partial class SubtitlesViewModel : ViewModelBase
         LoadedFilePath = path;
         StatusText = $"Loaded {parsed.Count} entries from {System.IO.Path.GetFileName(path)}";
         OnPropertyChanged(nameof(HasEntries));
+        UpdateCacheInfo(path);
     }
 
     public void SaveFile(string path)
     {
         SrtParser.Write(path, [.. Entries]);
         StatusText = $"Saved to {System.IO.Path.GetFileName(path)}";
+        // Clear cache once the file is properly saved
+        if (LoadedFilePath != null) _cacheService.ClearSubtitleSession(LoadedFilePath);
+        _cacheService.ClearSubtitleSession("unsaved");
+        UpdateCacheInfo(null);
+    }
+
+    [RelayCommand]
+    private void SaveCache()
+    {
+        if (Entries.Count == 0) { StatusText = "Nothing to cache."; return; }
+        var filePath = LoadedFilePath ?? "unsaved";
+        _cacheService.SaveSubtitleSession(filePath, SelectedLanguage, Entries);
+        UpdateCacheInfo(filePath);
+        StatusText = $"Session cached ({Entries.Count} entries).";
+    }
+
+    [RelayCommand]
+    private void LoadCache()
+    {
+        string? keyToLoad = null;
+        if (LoadedFilePath != null && _cacheService.GetSubtitleCacheInfo(LoadedFilePath) != null)
+            keyToLoad = LoadedFilePath;
+        else
+            keyToLoad = _cacheService.GetLatestSubtitleSession()?.FilePath;
+
+        if (keyToLoad == null) { StatusText = "No cached session found."; return; }
+
+        var entries = _cacheService.LoadSubtitleEntries(keyToLoad);
+        if (entries == null || entries.Count == 0) { StatusText = "Cached session is empty."; return; }
+
+        if (LoadedFilePath == null) LoadedFilePath = keyToLoad;
+        Entries = new ObservableCollection<SrtEntry>(entries);
+        OnPropertyChanged(nameof(HasEntries));
+        var info = _cacheService.GetSubtitleCacheInfo(keyToLoad);
+        StatusText = $"Restored {entries.Count} entries from cache ({info?.TranslatedEntries}/{info?.TotalEntries} translated).";
+        UpdateCacheInfo(keyToLoad);
+    }
+
+    private void UpdateCacheInfo(string? filePath)
+    {
+        SubtitleCacheInfo? info = filePath != null ? _cacheService.GetSubtitleCacheInfo(filePath) : null;
+        info ??= _cacheService.GetLatestSubtitleSession();
+        if (info != null)
+        {
+            HasCache = true;
+            var name = System.IO.Path.GetFileName(info.FilePath);
+            if (string.IsNullOrEmpty(name)) name = info.FilePath;
+            CacheInfo = $"Cached: {name} — {info.TranslatedEntries}/{info.TotalEntries} translated — {info.SavedAt.ToLocalTime():HH:mm}";
+        }
+        else
+        {
+            HasCache = false;
+            CacheInfo = "";
+        }
     }
 
     [RelayCommand]

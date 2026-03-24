@@ -42,6 +42,16 @@ public class AppSettings
         "google/gemma-3-27b-it:free"
     ];
 
+    // DeepL
+    public string DeepLApiKey { get; set; } = "";
+    public bool DeepLFreeApi { get; set; } = true;
+    public bool UseDeepLForMarkdown { get; set; } = false;
+
+    // Azure Speech
+    public string AzureSpeechApiKey { get; set; } = "";
+    public string AzureSpeechRegion { get; set; } = "";
+    public string SpeechSourceLanguage { get; set; } = "English";
+
     public string DefaultLanguage { get; set; } = "Bulgarian";
 
     public int BatchSize { get; set; } = 30;
@@ -66,9 +76,9 @@ public class AppSettings
     public string ActiveEndpoint => Provider switch
     {
          AiProvider.GitHubCopilot => 
-        "https://api.githubcopilot.com/v1/chat/completions",
+        // "https://api.githubcopilot.com/chat/completions",
         // "https://models.inference.ai.azure.com/chat/completions",
-        // AiProvider.GitHubCopilot => "https://models.github.ai/inference/chat/completions",
+"https://models.github.ai/inference/chat/completions",
         AiProvider.OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
         _ => "https://api.openai.com/v1/chat/completions"

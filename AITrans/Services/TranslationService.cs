@@ -36,6 +36,70 @@ public class TranslationService
         return model;
     }
 
+    // DeepL language code mapping
+    private static string ToDeepLLang(string language) => language.ToLowerInvariant() switch
+    {
+        "bulgarian" => "BG",
+        "russian" => "RU",
+        "english" => "EN-US",
+        "german" => "DE",
+        "french" => "FR",
+        "spanish" => "ES",
+        _ => language.ToUpperInvariant()
+    };
+
+    /// <summary>
+    /// Translate a batch of texts using the DeepL API.
+    /// Each paragraph is sent individually so we get paragraph-level progress callbacks.
+    /// </summary>
+    public async Task<List<string>> TranslateDeepLBatchAsync(
+        List<string> texts, string targetLanguage, string apiKey, bool freeApi,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default)
+    {
+        var endpoint = freeApi
+            ? "https://api-free.deepl.com/v2/translate"
+            : "https://api.deepl.com/v2/translate";
+        var langCode = ToDeepLLang(targetLanguage);
+        var results = new string[texts.Count];
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var payload = new
+            {
+                text = new[] { texts[i] },
+                target_lang = langCode
+            };
+            var body = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("DeepL-Auth-Key", apiKey);
+
+            using var resp = await HttpClient.SendAsync(req, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException($"DeepL error {resp.StatusCode}: {json}");
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var translated = doc.RootElement
+                .GetProperty("translations")[0]
+                .GetProperty("text")
+                .GetString() ?? "";
+
+            results[i] = translated;
+            onEntryTranslated?.Invoke(i, translated);
+            progress?.Report((i + 1) * 100 / texts.Count);
+        }
+
+        return [.. results];
+    }
+
     /// <summary>
     /// Fetches available models from the GitHub Models API (models.inference.ai.azure.com).
     /// </summary>
@@ -56,26 +120,20 @@ public class TranslationService
         foreach (var item in doc.RootElement.EnumerateArray())
         {
             var id = item.GetProperty("id").GetString() ?? "";
-            // Filter for chat/completion capable models
-            if (!string.IsNullOrEmpty(id) && item.TryGetProperty("task", out var task))
+            if (string.IsNullOrEmpty(id)) continue;
+
+            // The id may be a full azureml URI like:
+            // azureml://registries/azure-openai/models/gpt-4o/versions/...
+            // Extract just the model name from between /models/ and /versions/
+            var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            var modelName = name;
+            if (string.IsNullOrEmpty(modelName) || modelName.Contains("://"))
             {
-                var taskStr = task.GetString() ?? "";
-                if (taskStr.Contains("chat", StringComparison.OrdinalIgnoreCase))
-                {
-                    // The id may be a full azureml URI like:
-                    // azureml://registries/azure-openai/models/gpt-4o/versions/...
-                    // Extract just the model name from between /models/ and /versions/
-                    var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-                    var modelName = name;
-                    if (string.IsNullOrEmpty(modelName) || modelName.Contains("://"))
-                    {
-                        var match = Regex.Match(id, @"/models/([^/]+)(/|$)");
-                        modelName = match.Success ? match.Groups[1].Value : id;
-                    }
-                    if (!string.IsNullOrEmpty(modelName))
-                        models.Add(modelName);
-                }
+                var match = Regex.Match(id, @"/models/([^/]+)(/|$)");
+                modelName = match.Success ? match.Groups[1].Value : id;
             }
+            if (!string.IsNullOrEmpty(modelName))
+                models.Add(modelName);
         }
 
         return models.OrderBy(m => m).ToList();

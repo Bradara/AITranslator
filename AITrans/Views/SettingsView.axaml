@@ -85,6 +85,41 @@
 
       <Separator Margin="0,5" />
 
+      <!-- DeepL -->
+      <TextBlock Text="DeepL" FontSize="16" FontWeight="SemiBold" />
+      <StackPanel Spacing="5">
+        <TextBlock Text="API Key" />
+        <TextBox Text="{Binding DeepLApiKey}" PasswordChar="•" Watermark="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx" />
+      </StackPanel>
+      <StackPanel Spacing="5">
+        <ToggleSwitch IsChecked="{Binding DeepLFreeApi}" OnContent="Free API (api-free.deepl.com)" OffContent="Paid API (api.deepl.com)" />
+        <TextBlock Text="Free tier: 500 000 chars/month. Register at deepl.com/pro#developer" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+      </StackPanel>
+      <StackPanel Spacing="5">
+        <ToggleSwitch IsChecked="{Binding UseDeepLForMarkdown}" OnContent="Use DeepL for Markdown tab" OffContent="Use AI model for Markdown tab" />
+        <TextBlock Text="When enabled, the Markdown tab will use DeepL instead of the selected AI provider." FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <Separator Margin="0,5" />
+
+      <!-- Azure Speech -->
+      <TextBlock Text="Azure Speech (Text-to-Speech)" FontSize="16" FontWeight="SemiBold" />
+      <StackPanel Spacing="5">
+        <TextBlock Text="API Key (Speech resource key)" />
+        <TextBox Text="{Binding AzureSpeechApiKey}" PasswordChar="•" Watermark="32-char key from Azure portal" />
+      </StackPanel>
+      <StackPanel Spacing="5">
+        <TextBlock Text="Region" />
+        <TextBox Text="{Binding AzureSpeechRegion}" Watermark="e.g. eastus, westeurope" />
+        <TextBlock Text="Find your region in Azure portal → Speech resource → Keys and Endpoint" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+      </StackPanel>
+      <StackPanel Spacing="5">
+        <TextBlock Text="Original text language (for Read Original)" />
+        <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SpeechSourceLanguage}" Width="250" />
+      </StackPanel>
+
+      <Separator Margin="0,5" />
+
       <!-- Default Language -->
       <StackPanel Spacing="5">
         <TextBlock Text="Default Target Language" FontWeight="SemiBold" />

@@ -17,12 +17,19 @@
       <Button Content="▶ From Here" Command="{Binding TranslateFromSelectedCommand}" ToolTip.Tip="Translate from selected row to end" />
       <Button Content="⏹ Cancel" Command="{Binding CancelTranslationCommand}" IsVisible="{Binding IsTranslating}" />
       <Button x:Name="SaveFileBtn" Content="💾 Save" Click="OnSaveFileClick" />
+      <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+      <Button Content="🗄 Cache" Command="{Binding SaveCacheCommand}" ToolTip.Tip="Save current translation session to database" />
+      <Button Content="♻ Restore" Command="{Binding LoadCacheCommand}" IsEnabled="{Binding HasCache}" ToolTip.Tip="Restore last saved session from database" />
       <ProgressBar IsVisible="{Binding IsTranslating}" Value="{Binding Progress}" Maximum="100" Width="200" MinHeight="20" />
     </StackPanel>
 
     <!-- File path indicator -->
-    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadedFilePath}" Margin="0,0,0,5" FontSize="12" Opacity="0.6"
+    <TextBlock DockPanel.Dock="Top" Text="{Binding LoadedFilePath}" Margin="0,0,0,2" FontSize="12" Opacity="0.6"
                IsVisible="{Binding LoadedFilePath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+    <!-- Cache info -->
+    <TextBlock DockPanel.Dock="Top" Text="{Binding CacheInfo}" Margin="0,0,0,5" FontSize="11" Opacity="0.8"
+               IsVisible="{Binding HasCache}" />
 
     <!-- Status bar -->
     <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusText}" Margin="0,5,0,0" Opacity="0.7" TextWrapping="Wrap" />

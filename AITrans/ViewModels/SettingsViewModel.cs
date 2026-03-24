@@ -73,6 +73,26 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusText = "";
 
+    // DeepL
+    [ObservableProperty]
+    private string _deepLApiKey = "";
+
+    [ObservableProperty]
+    private bool _deepLFreeApi = true;
+
+    [ObservableProperty]
+    private bool _useDeepLForMarkdown = false;
+
+    // Azure Speech
+    [ObservableProperty]
+    private string _azureSpeechApiKey = "";
+
+    [ObservableProperty]
+    private string _azureSpeechRegion = "";
+
+    [ObservableProperty]
+    private string _speechSourceLanguage = "English";
+
     public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini"];
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
 
@@ -112,6 +132,12 @@ public partial class SettingsViewModel : ViewModelBase
         GitHubCopilotModels = new ObservableCollection<string>(s.GitHubCopilotModels);
         OpenRouterModels = new ObservableCollection<string>(s.OpenRouterFreeModels);
         FreeModelCount = $"{s.OpenRouterFreeModels.Count} free models loaded";
+        DeepLApiKey = s.DeepLApiKey;
+        DeepLFreeApi = s.DeepLFreeApi;
+        UseDeepLForMarkdown = s.UseDeepLForMarkdown;
+        AzureSpeechApiKey = s.AzureSpeechApiKey;
+        AzureSpeechRegion = s.AzureSpeechRegion;
+        SpeechSourceLanguage = s.SpeechSourceLanguage;
         DefaultLanguage = s.DefaultLanguage;
         BatchSize = s.BatchSize;
         DelayBetweenRequestsMs = s.DelayBetweenRequestsMs;
@@ -209,6 +235,12 @@ public partial class SettingsViewModel : ViewModelBase
         s.OpenRouterModel = OpenRouterModel;
         s.GeminiModel = GeminiModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;
+        s.DeepLApiKey = DeepLApiKey;
+        s.DeepLFreeApi = DeepLFreeApi;
+        s.UseDeepLForMarkdown = UseDeepLForMarkdown;
+        s.AzureSpeechApiKey = AzureSpeechApiKey;
+        s.AzureSpeechRegion = AzureSpeechRegion;
+        s.SpeechSourceLanguage = SpeechSourceLanguage;
         s.DefaultLanguage = DefaultLanguage;
         s.BatchSize = BatchSize;
         s.DelayBetweenRequestsMs = DelayBetweenRequestsMs;

@@ -13,9 +13,11 @@ public partial class MainViewModel : ViewModelBase
         var settingsService = new SettingsService();
         settingsService.Load();
         var translationService = new TranslationService();
+        var speechService = new SpeechService();
+        var cacheService = new CacheService();
 
-        SubtitlesTab = new SubtitlesViewModel(translationService, settingsService);
-        MarkdownTab = new MarkdownViewModel(translationService, settingsService);
+        SubtitlesTab = new SubtitlesViewModel(translationService, settingsService, cacheService);
+        MarkdownTab = new MarkdownViewModel(translationService, settingsService, speechService, cacheService);
         SettingsTab = new SettingsViewModel(settingsService, translationService);
     }
 }

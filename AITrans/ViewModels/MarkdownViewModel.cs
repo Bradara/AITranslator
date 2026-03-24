@@ -16,7 +16,10 @@ public partial class MarkdownViewModel : ViewModelBase
 {
     private readonly TranslationService _translationService;
     private readonly SettingsService _settingsService;
+    private readonly SpeechService _speechService;
+    private readonly CacheService _cacheService;
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _speechCts;
 
     [ObservableProperty]
     private string _inputText = "";
@@ -26,6 +29,9 @@ public partial class MarkdownViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isTranslating;
+
+    [ObservableProperty]
+    private bool _isSpeaking;
 
     [ObservableProperty]
     private int _progress;
@@ -39,17 +45,26 @@ public partial class MarkdownViewModel : ViewModelBase
     [ObservableProperty]
     private string? _loadedFilePath;
 
+    [ObservableProperty]
+    private string _cacheInfo = "";
+
+    [ObservableProperty]
+    private bool _hasCache;
+
     private List<int> _selectedIndices = [];
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
     public bool HasParagraphs => Paragraphs.Count > 0;
 
-    public MarkdownViewModel(TranslationService translationService, SettingsService settingsService)
+    public MarkdownViewModel(TranslationService translationService, SettingsService settingsService, SpeechService speechService, CacheService cacheService)
     {
         _translationService = translationService;
         _settingsService = settingsService;
+        _speechService = speechService;
+        _cacheService = cacheService;
         SelectedLanguage = settingsService.Settings.DefaultLanguage;
+        UpdateCacheInfo();
     }
 
     public void SetSelectedIndices(List<int> indices)
@@ -70,6 +85,47 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         File.WriteAllText(path, GetCombinedTranslation());
         StatusText = $"Saved to {Path.GetFileName(path)}";
+        _cacheService.ClearMarkdownSession();
+        UpdateCacheInfo();
+    }
+
+    [RelayCommand]
+    private void SaveCache()
+    {
+        if (Paragraphs.Count == 0) { StatusText = "Nothing to cache."; return; }
+        _cacheService.SaveMarkdownSession(InputText, SelectedLanguage, Paragraphs);
+        UpdateCacheInfo();
+        StatusText = $"Session cached ({Paragraphs.Count} paragraphs).";
+    }
+
+    [RelayCommand]
+    private void LoadCache()
+    {
+        var result = _cacheService.LoadMarkdownSession();
+        if (result == null) { StatusText = "No cached session found."; return; }
+
+        var (inputText, paragraphs) = result.Value;
+        InputText = inputText;
+        Paragraphs = new ObservableCollection<MarkdownEntry>(paragraphs);
+        OnPropertyChanged(nameof(HasParagraphs));
+        var info = _cacheService.GetMarkdownCacheInfo();
+        StatusText = $"Restored {paragraphs.Count} paragraphs from cache ({info?.TranslatedParagraphs}/{info?.TotalParagraphs} translated).";
+        UpdateCacheInfo();
+    }
+
+    private void UpdateCacheInfo()
+    {
+        var info = _cacheService.GetMarkdownCacheInfo();
+        if (info != null)
+        {
+            HasCache = true;
+            CacheInfo = $"Cached: {info.TranslatedParagraphs}/{info.TotalParagraphs} paragraphs — {info.SavedAt.ToLocalTime():HH:mm}";
+        }
+        else
+        {
+            HasCache = false;
+            CacheInfo = "";
+        }
     }
 
     [RelayCommand]
@@ -136,6 +192,100 @@ public partial class MarkdownViewModel : ViewModelBase
         _cts?.Cancel();
     }
 
+    [RelayCommand]
+    private async Task ReadOriginalAsync()
+    {
+        var settings = _settingsService.Settings;
+        if (string.IsNullOrWhiteSpace(settings.AzureSpeechApiKey) || string.IsNullOrWhiteSpace(settings.AzureSpeechRegion))
+        {
+            StatusText = "Azure Speech not configured. Go to Settings tab.";
+            return;
+        }
+        if (Paragraphs.Count == 0) return;
+
+        var fromIndex = _selectedIndices.Count > 0 ? _selectedIndices.Min() : 0;
+        var texts = Paragraphs.Skip(fromIndex).Select(p => p.OriginalText).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        if (texts.Count == 0) return;
+
+        IsSpeaking = true;
+        _speechCts = new CancellationTokenSource();
+        StatusText = fromIndex > 0 ? $"Reading original from paragraph {fromIndex + 1}..." : "Reading original...";
+
+        try
+        {
+            await _speechService.SpeakParagraphsAsync(
+                texts, settings.SpeechSourceLanguage,
+                settings.AzureSpeechApiKey, settings.AzureSpeechRegion, _speechCts.Token);
+            StatusText = "Done reading.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Reading stopped.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Speech error: {ex.Message}";
+        }
+        finally
+        {
+            IsSpeaking = false;
+            _speechCts?.Dispose();
+            _speechCts = null;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ReadTranslationAsync()
+    {
+        var settings = _settingsService.Settings;
+        if (string.IsNullOrWhiteSpace(settings.AzureSpeechApiKey) || string.IsNullOrWhiteSpace(settings.AzureSpeechRegion))
+        {
+            StatusText = "Azure Speech not configured. Go to Settings tab.";
+            return;
+        }
+        if (Paragraphs.Count == 0) return;
+
+        var fromIndex = _selectedIndices.Count > 0 ? _selectedIndices.Min() : 0;
+        var texts = Paragraphs.Skip(fromIndex)
+            .Select(p => !string.IsNullOrEmpty(p.TranslatedText) ? p.TranslatedText : p.OriginalText)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToList();
+        if (texts.Count == 0) return;
+
+        IsSpeaking = true;
+        _speechCts = new CancellationTokenSource();
+        StatusText = fromIndex > 0 ? $"Reading translation from paragraph {fromIndex + 1}..." : "Reading translation...";
+
+        try
+        {
+            await _speechService.SpeakParagraphsAsync(
+                texts, SelectedLanguage,
+                settings.AzureSpeechApiKey, settings.AzureSpeechRegion, _speechCts.Token);
+            StatusText = "Done reading.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Reading stopped.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Speech error: {ex.Message}";
+        }
+        finally
+        {
+            IsSpeaking = false;
+            _speechCts?.Dispose();
+            _speechCts = null;
+        }
+    }
+
+    [RelayCommand]
+    private void StopSpeech()
+    {
+        _speechCts?.Cancel();
+        _speechService.Stop();
+    }
+
     /// <summary>
     /// Combines all translations back into one text block.
     /// </summary>
@@ -156,12 +306,6 @@ public partial class MarkdownViewModel : ViewModelBase
         if (Paragraphs.Count == 0 || indices.Count == 0) return;
 
         var settings = _settingsService.Settings;
-        var apiKey = settings.ActiveApiKey;
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            StatusText = "Error: API key not set. Go to Settings tab.";
-            return;
-        }
 
         IsTranslating = true;
         Progress = 0;
@@ -189,19 +333,48 @@ public partial class MarkdownViewModel : ViewModelBase
                 }
             }
 
-            // Use small batch size for markdown paragraphs (max 5)
-            var batchSize = Math.Min(settings.BatchSize, 5);
-
-            var translations = await _translationService.TranslateSubtitleBatchAsync(
-                texts, SelectedLanguage, apiKey, settings.ActiveModel, settings.ActiveEndpoint,
-                batchSize, settings.DelayBetweenRequestsMs,
-                progressReporter, OnEntryTranslated, settings, _cts.Token);
-
-            for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+            if (settings.UseDeepLForMarkdown)
             {
-                var realIdx = indexMap[i];
-                if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
-                    Paragraphs[realIdx].TranslatedText = translations[i];
+                if (string.IsNullOrWhiteSpace(settings.DeepLApiKey))
+                {
+                    StatusText = "Error: DeepL API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                var translations = await _translationService.TranslateDeepLBatchAsync(
+                    texts, SelectedLanguage, settings.DeepLApiKey, settings.DeepLFreeApi,
+                    progressReporter, OnEntryTranslated, _cts.Token);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = translations[i];
+                }
+            }
+            else
+            {
+                var apiKey = settings.ActiveApiKey;
+                if (string.IsNullOrWhiteSpace(apiKey))
+                {
+                    StatusText = "Error: API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                // Use small batch size for markdown paragraphs (max 5)
+                var batchSize = Math.Min(settings.BatchSize, 5);
+
+                var translations = await _translationService.TranslateSubtitleBatchAsync(
+                    texts, SelectedLanguage, apiKey, settings.ActiveModel, settings.ActiveEndpoint,
+                    batchSize, settings.DelayBetweenRequestsMs,
+                    progressReporter, OnEntryTranslated, settings, _cts.Token);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = translations[i];
+                }
             }
 
             StatusText = $"Done. {translated} of {total} paragraphs translated.";
