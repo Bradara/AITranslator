@@ -101,31 +101,58 @@ public class TranslationService
     }
 
     /// <summary>
-    /// Fetches available models from the GitHub Models API (models.inference.ai.azure.com).
+    /// Fetches available models from the GitHub Models API and GitHub Copilot Pro API
+    /// (models.inference.ai.azure.com + api.githubcopilot.com), merging both lists.
     /// </summary>
     public async Task<List<string>> FetchGitHubModelsAsync(string apiKey, CancellationToken ct = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "https://models.inference.ai.azure.com/models");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        using var response = await HttpClient.SendAsync(request, ct);
-        var json = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"GitHub Models API error: {response.StatusCode}");
-
-        using var doc = JsonDocument.Parse(json);
-        var models = new List<string>();
-
-        foreach (var item in doc.RootElement.EnumerateArray())
+        // ── Endpoint 1: GitHub Models (free + Pro)
+        try
         {
-            var id = item.GetProperty("id").GetString() ?? "";
-            if (string.IsNullOrEmpty(id)) continue;
+            using var req1 = new HttpRequestMessage(HttpMethod.Get,
+                "https://models.github.ai/catalog/models");
+               // "https://models.inference.ai.azure.com/models");
+            req1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            using var resp1 = await HttpClient.SendAsync(req1, ct);
+            var json1 = await resp1.Content.ReadAsStringAsync(ct);
+            if (resp1.IsSuccessStatusCode)
+                ExtractModelsFromArray(json1, models);
+        }
+        catch { /* ignore — Copilot endpoint may still succeed */ }
 
-            // The id may be a full azureml URI like:
-            // azureml://registries/azure-openai/models/gpt-4o/versions/...
-            // Extract just the model name from between /models/ and /versions/
+        // ── Endpoint 2: Copilot Pro models
+        try
+        {
+            using var req2 = new HttpRequestMessage(HttpMethod.Get,
+                "https://api.githubcopilot.com/models");
+            req2.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            using var resp2 = await HttpClient.SendAsync(req2, ct);
+            var json2 = await resp2.Content.ReadAsStringAsync(ct);
+            if (resp2.IsSuccessStatusCode)
+                ExtractModelsFromArray(json2, models);
+        }
+        catch { /* ignore */ }
+
+        return models.OrderBy(m => m).ToList();
+    }
+
+    private static void ExtractModelsFromArray(string json, HashSet<string> target)
+    {
+        using var doc = JsonDocument.Parse(json);
+        // Response may be a top-level array OR { "data": [...] }
+        JsonElement arr = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement
+            : doc.RootElement.TryGetProperty("data", out var d) ? d : default;
+
+        if (arr.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var item in arr.EnumerateArray())
+        {
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
             var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+
             var modelName = name;
             if (string.IsNullOrEmpty(modelName) || modelName.Contains("://"))
             {
@@ -133,10 +160,8 @@ public class TranslationService
                 modelName = match.Success ? match.Groups[1].Value : id;
             }
             if (!string.IsNullOrEmpty(modelName))
-                models.Add(modelName);
+                target.Add(modelName);
         }
-
-        return models.OrderBy(m => m).ToList();
     }
 
     /// <summary>

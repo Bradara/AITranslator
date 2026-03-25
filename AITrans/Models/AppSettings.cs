@@ -7,7 +7,8 @@ public enum AiProvider
     OpenAI,
     GitHubCopilot,
     OpenRouter,
-    Gemini
+    Gemini,
+    DeepSeek
 }
 
 public class AppSettings
@@ -18,11 +19,13 @@ public class AppSettings
     public string GitHubCopilotApiKey { get; set; } = "";
     public string OpenRouterApiKey { get; set; } = "";
     public string GeminiApiKey { get; set; } = "";
+    public string DeepSeekApiKey { get; set; } = "";
 
     public string OpenAiModel { get; set; } = "gpt-4o-mini";
     public string GitHubCopilotModel { get; set; } = "gpt-4o";
     public string OpenRouterModel { get; set; } = "google/gemini-2.0-flash-exp:free";
     public string GeminiModel { get; set; } = "gemini-2.0-flash";
+    public string DeepSeekModel { get; set; } = "deepseek-chat";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -62,6 +65,7 @@ public class AppSettings
         AiProvider.GitHubCopilot => GitHubCopilotApiKey,
         AiProvider.OpenRouter => OpenRouterApiKey,
         AiProvider.Gemini => GeminiApiKey,
+        AiProvider.DeepSeek => DeepSeekApiKey,
         _ => OpenAiApiKey
     };
 
@@ -70,17 +74,19 @@ public class AppSettings
         AiProvider.GitHubCopilot => GitHubCopilotModel,
         AiProvider.OpenRouter => OpenRouterModel,
         AiProvider.Gemini => GeminiModel,
+        AiProvider.DeepSeek => DeepSeekModel,
         _ => OpenAiModel
     };
 
     public string ActiveEndpoint => Provider switch
     {
-         AiProvider.GitHubCopilot => 
+        AiProvider.GitHubCopilot =>
         // "https://api.githubcopilot.com/chat/completions",
-        // "https://models.inference.ai.azure.com/chat/completions",
-"https://models.github.ai/inference/chat/completions",
+        "https://models.inference.ai.azure.com/chat/completions",
+        // "https://models.github.ai/inference/chat/completions",
         AiProvider.OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
+        AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
         _ => "https://api.openai.com/v1/chat/completions"
     };
 }
