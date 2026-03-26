@@ -153,12 +153,24 @@ public class TranslationService
             var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
             var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
 
-            var modelName = name;
-            if (string.IsNullOrEmpty(modelName) || modelName.Contains("://"))
+            string modelName;
+            if (!string.IsNullOrEmpty(id) && !id.Contains("://"))
             {
-                var match = Regex.Match(id, @"/models/([^/]+)(/|$)");
-                modelName = match.Success ? match.Groups[1].Value : id;
+                // Copilot endpoint: id may include a provider prefix (e.g. "openai/gpt-5" → "gpt-5")
+                var slash = id.LastIndexOf('/');
+                modelName = slash >= 0 ? id[(slash + 1)..] : id;
             }
+            else if (!string.IsNullOrEmpty(id) && id.Contains("://"))
+            {
+                // Azure models endpoint: id is a full URI — extract name from /models/<name>/
+                var match = Regex.Match(id, @"/models/([^/]+)(/|$)");
+                modelName = match.Success ? match.Groups[1].Value : name;
+            }
+            else
+            {
+                modelName = name;
+            }
+
             if (!string.IsNullOrEmpty(modelName))
                 target.Add(modelName);
         }
@@ -280,17 +292,21 @@ public class TranslationService
             {
                 return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
             }
-            catch (HttpRequestException ex) when (attempt < MaxRetries && (ex.Message.Contains("429") || ex.Message.Contains("404")))
+            catch (HttpRequestException ex) when (attempt < MaxRetries && (ex.Message.Contains("429") || ex.Message.Contains("404") || ex.Message.Contains("unknown_model")))
             {
                 Debug.WriteLine($"[TranslationService] Attempt {attempt + 1}/{MaxRetries} failed: {ex.Message}");
-                // On 429 or 404, try switching to a different model if auto-rotate is on
+                // On rate-limit or unknown model, try switching to a different model if auto-rotate is on
                 if (settings is { Provider: AiProvider.OpenRouter, OpenRouterAutoRotate: true }
                     && settings.OpenRouterFreeModels.Count > 1)
                 {
                     model = GetNextModel(settings);
                     Debug.WriteLine($"[TranslationService] Switching to model: {model}");
-                    // Short delay before retry with new model
                     await Task.Delay(2000, ct);
+                }
+                else if (ex.Message.Contains("unknown_model"))
+                {
+                    // Unknown model — no point retrying with the same model, surface immediately
+                    throw;
                 }
                 else
                 {
@@ -320,7 +336,7 @@ public class TranslationService
                 new { role = "system", content = systemPrompt },
                 new { role = "user", content = userMessage }
             },
-            temperature = 0.3
+            temperature = 1.0
         };
 
         var json = JsonSerializer.Serialize(requestBody);

@@ -51,6 +51,10 @@ public partial class MarkdownViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasCache;
 
+    /// <summary>Set by commands to signal the view to scroll to a specific row index. View resets to -1 after handling.</summary>
+    [ObservableProperty]
+    private int _scrollToRow = -1;
+
     private List<int> _selectedIndices = [];
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
@@ -78,6 +82,7 @@ public partial class MarkdownViewModel : ViewModelBase
         InputText = content;
         LoadedFilePath = path;
         ParseParagraphs();
+        ScrollToRow = 0;
         StatusText = $"Loaded {Paragraphs.Count} paragraphs from {Path.GetFileName(path)}";
     }
 
@@ -111,6 +116,10 @@ public partial class MarkdownViewModel : ViewModelBase
         var info = _cacheService.GetMarkdownCacheInfo();
         StatusText = $"Restored {paragraphs.Count} paragraphs from cache ({info?.TranslatedParagraphs}/{info?.TotalParagraphs} translated).";
         UpdateCacheInfo();
+        // Scroll to first untranslated paragraph so work continues where it left off
+        ScrollToRow = Paragraphs
+            .Select((p, i) => (p, i))
+            .FirstOrDefault(x => string.IsNullOrEmpty(x.p.TranslatedText)).i;
     }
 
     private void UpdateCacheInfo()
@@ -148,6 +157,7 @@ public partial class MarkdownViewModel : ViewModelBase
         }
 
         Paragraphs = entries;
+        ScrollToRow = 0;
         StatusText = $"Parsed {parts.Count} paragraphs.";
         OnPropertyChanged(nameof(HasParagraphs));
     }

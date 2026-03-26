@@ -15,6 +15,9 @@
     <TabItem Header="Markdown">
       <views:MarkdownView DataContext="{Binding MarkdownTab}" />
     </TabItem>
+    <TabItem Header="📖 Preview">
+      <views:MarkdownPreviewView DataContext="{Binding MarkdownPreviewTab}" />
+    </TabItem>
     <TabItem Header="Settings">
       <views:SettingsView DataContext="{Binding SettingsTab}" />
     </TabItem>

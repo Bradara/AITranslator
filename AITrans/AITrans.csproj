@@ -23,5 +23,6 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Markdown.Avalonia" />
   </ItemGroup>
 </Project>

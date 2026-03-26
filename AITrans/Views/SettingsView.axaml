@@ -3,174 +3,212 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AITrans.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
              x:Class="AITrans.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
-  <ScrollViewer>
-    <StackPanel Margin="20" Spacing="15" MaxWidth="500" HorizontalAlignment="Left">
-      <TextBlock Text="Settings" FontSize="24" FontWeight="Bold" Margin="0,0,0,10" />
+  <Grid ColumnDefinitions="*,Auto,*">
 
-      <!-- Provider -->
-      <StackPanel Spacing="5">
-        <TextBlock Text="AI Provider" FontWeight="SemiBold" />
-        <ComboBox ItemsSource="{Binding AvailableProviders}" SelectedItem="{Binding SelectedProvider}" Width="250" />
-      </StackPanel>
+    <!-- LEFT COLUMN: AI Provider Settings -->
+    <ScrollViewer Grid.Column="0">
+      <StackPanel Margin="16,12" Spacing="14">
+        <TextBlock Text="AI Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
 
-      <Separator Margin="0,5" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="Provider" FontWeight="SemiBold" />
+          <ComboBox ItemsSource="{Binding AvailableProviders}" SelectedItem="{Binding SelectedProvider}" Width="240" />
+        </StackPanel>
 
-      <!-- OpenAI settings -->
-      <StackPanel Spacing="10" IsVisible="{Binding IsOpenAi}">
-        <TextBlock Text="OpenAI" FontSize="16" FontWeight="SemiBold" />
-        <StackPanel Spacing="5">
-          <TextBlock Text="API Key" />
-          <TextBox Text="{Binding OpenAiApiKey}" PasswordChar="•" Watermark="sk-..." />
-        </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding OpenAiModels}" SelectedItem="{Binding OpenAiModel}" Width="250" />
-        </StackPanel>
-      </StackPanel>
+        <Separator Margin="0,4" />
 
-      <!-- GitHub Copilot settings -->
-      <StackPanel Spacing="10" IsVisible="{Binding IsGitHubCopilot}">
-        <TextBlock Text="GitHub Copilot" FontSize="16" FontWeight="SemiBold" />
-        <StackPanel Spacing="5">
-          <TextBlock Text="API Key / Token" />
-          <TextBox Text="{Binding GitHubCopilotApiKey}" PasswordChar="•" Watermark="ghp_..." />
-        </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding GitHubCopilotModels}" SelectedItem="{Binding GitHubCopilotModel}" Width="250" />
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" Spacing="10">
-          <Button Content="🔄 Fetch available models" Command="{Binding FetchGitHubModelsCommand}" IsEnabled="{Binding !IsFetchingModels}" Padding="12,6" />
-        </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Add model manually (if not in list)" FontSize="12" Opacity="0.7" />
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBox Text="{Binding CustomGitHubModel}" Watermark="e.g. gemini-3-flash-preview" Width="220" />
-            <Button Content="➕ Add" Command="{Binding AddCustomGitHubModelCommand}" Padding="10,4" />
+        <!-- OpenAI -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsOpenAi}">
+          <TextBlock Text="OpenAI" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Key" />
+            <TextBox Text="{Binding OpenAiApiKey}" PasswordChar="&#x2022;" Watermark="sk-..." />
           </StackPanel>
-          <TextBlock Text="Some VS Code Chat preview models may not yet be available for direct API calls." FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="Model" />
+            <ComboBox ItemsSource="{Binding OpenAiModels}" SelectedItem="{Binding OpenAiModel}" Width="240" />
+          </StackPanel>
         </StackPanel>
-      </StackPanel>
 
-      <!-- Gemini settings -->
-      <StackPanel Spacing="10" IsVisible="{Binding IsGemini}">
-        <TextBlock Text="Google Gemini" FontSize="16" FontWeight="SemiBold" />
-        <StackPanel Spacing="5">
+        <!-- GitHub Copilot -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsGitHubCopilot}">
+          <TextBlock Text="GitHub Copilot" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Key / Token" />
+            <TextBox Text="{Binding GitHubCopilotApiKey}" PasswordChar="&#x2022;" Watermark="ghp_..." />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Model" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <ComboBox ItemsSource="{Binding GitHubCopilotModels}" SelectedItem="{Binding GitHubCopilotModel}" Width="210" />
+              <Button Content="&#x1F5D1;" Command="{Binding RemoveGitHubModelCommand}"
+                      ToolTip.Tip="Remove selected model from list" Padding="8,4" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Inference endpoint" />
+            <ComboBox ItemsSource="{Binding GitHubEndpointLabels}"
+                      SelectedItem="{Binding GitHubCopilotEndpointLabel}"
+                      Width="340"
+                      ToolTip.Tip="Which API endpoint to use for translation calls" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="&#x1F504; Fetch models" Command="{Binding FetchGitHubModelsCommand}"
+                    IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Add model manually" FontSize="12" Opacity="0.7" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBox Text="{Binding CustomGitHubModel}" Watermark="e.g. gemini-3-flash-preview" Width="195" />
+              <Button Content="&#x2795; Add" Command="{Binding AddCustomGitHubModelCommand}" Padding="8,4" />
+            </StackPanel>
+            <TextBlock Text="Preview models in VS Code Chat may not be available via direct API calls."
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Google Gemini -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsGemini}">
+          <TextBlock Text="Google Gemini" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Key" />
+            <TextBox Text="{Binding GeminiApiKey}" PasswordChar="&#x2022;" Watermark="AIza..." />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Model" />
+            <ComboBox ItemsSource="{Binding GeminiModels}" SelectedItem="{Binding GeminiModel}" Width="240" />
+          </StackPanel>
+          <TextBlock Text="Free API key at aistudio.google.com/app/apikey" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- DeepSeek -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsDeepSeek}">
+          <TextBlock Text="DeepSeek" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Key" />
+            <TextBox Text="{Binding DeepSeekApiKey}" PasswordChar="&#x2022;" Watermark="sk-..." />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Model" />
+            <ComboBox ItemsSource="{Binding DeepSeekModels}" SelectedItem="{Binding DeepSeekModel}" Width="240" />
+          </StackPanel>
+          <TextBlock Text="API key at platform.deepseek.com (OpenAI-compatible)." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- OpenRouter -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsOpenRouter}">
+          <TextBlock Text="OpenRouter" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Key" />
+            <TextBox Text="{Binding OpenRouterApiKey}" PasswordChar="&#x2022;" Watermark="sk-or-..." />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Model" />
+            <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding OpenRouterModel}" Width="240" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <ToggleSwitch IsChecked="{Binding OpenRouterAutoRotate}"
+                          OnContent="Auto-rotate free models" OffContent="Use selected model only" />
+            <TextBlock Text="Cycles through free models per batch; switches on 429 errors."
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Content="&#x1F504; Fetch free models" Command="{Binding FetchFreeModelsCommand}"
+                    IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
+            <TextBlock Text="{Binding FreeModelCount}" VerticalAlignment="Center" FontSize="12" Opacity="0.7" />
+          </StackPanel>
+        </StackPanel>
+
+                <Separator Margin="0,4" />
+
+        <!-- DeepL -->
+        <TextBlock Text="DeepL" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
           <TextBlock Text="API Key" />
-          <TextBox Text="{Binding GeminiApiKey}" PasswordChar="•" Watermark="AIza..." />
+          <TextBox Text="{Binding DeepLApiKey}" PasswordChar="&#x2022;" Watermark="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx" />
         </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding GeminiModels}" SelectedItem="{Binding GeminiModel}" Width="250" />
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding DeepLFreeApi}"
+                        OnContent="Free API (api-free.deepl.com)" OffContent="Paid API (api.deepl.com)" />
+          <TextBlock Text="Free tier: 500 000 chars/month. Register at deepl.com/pro#developer"
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
-        <TextBlock Text="Get a free API key at https://aistudio.google.com/app/apikey" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
-      </StackPanel>
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding UseDeepLForMarkdown}"
+                        OnContent="Use DeepL for Markdown tab" OffContent="Use AI model for Markdown tab" />
+          <TextBlock Text="When enabled, Markdown tab uses DeepL instead of the AI provider."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
 
-      <!-- DeepSeek settings -->
-      <StackPanel Spacing="10" IsVisible="{Binding IsDeepSeek}">
-        <TextBlock Text="DeepSeek" FontSize="16" FontWeight="SemiBold" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Divider -->
+    <GridSplitter Grid.Column="1" Width="1"
+                  Background="{DynamicResource SystemControlForegroundBaseMediumLowBrush}"
+                  ResizeBehavior="PreviousAndNext" VerticalAlignment="Stretch" Margin="4,0" />
+
+    <!-- RIGHT COLUMN: General Settings -->
+    <ScrollViewer Grid.Column="2">
+      <StackPanel Margin="16,12" Spacing="14">
+        <TextBlock Text="General Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
+
+        <!-- Default Language -->
         <StackPanel Spacing="5">
+          <TextBlock Text="Default Target Language" FontWeight="SemiBold" />
+          <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding DefaultLanguage}" Width="200" />
+        </StackPanel>
+
+        <Separator Margin="0,4" />
+
+        <!-- Rate Limiting -->
+        <TextBlock Text="Rate Limiting" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Subtitle lines per batch" />
+          <NumericUpDown Value="{Binding BatchSize}" Minimum="5" Maximum="100" Increment="5" Width="140" />
+          <TextBlock Text="More lines = fewer API calls, but may hit token limits." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Delay between requests (ms)" />
+          <NumericUpDown Value="{Binding DelayBetweenRequestsMs}" Minimum="0" Maximum="30000" Increment="500" Width="140" />
+          <TextBlock Text="GitHub free tier: 2000-3000 ms recommended. 0 = no delay." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
+
+
+        <Separator Margin="0,4" />
+
+        <!-- Azure Speech -->
+        <TextBlock Text="Azure Speech (Text-to-Speech)" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
           <TextBlock Text="API Key" />
-          <TextBox Text="{Binding DeepSeekApiKey}" PasswordChar="•" Watermark="sk-..." />
+          <TextBox Text="{Binding AzureSpeechApiKey}" PasswordChar="&#x2022;" Watermark="32-char key from Azure portal" />
         </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding DeepSeekModels}" SelectedItem="{Binding DeepSeekModel}" Width="250" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Region" />
+          <TextBox Text="{Binding AzureSpeechRegion}" Watermark="e.g. eastus, westeurope" />
+          <TextBlock Text="Azure portal &#x2192; Speech resource &#x2192; Keys and Endpoint"
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
-        <TextBlock Text="Get an API key at platform.deepseek.com — same OpenAI-compatible API." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
-      </StackPanel>
-
-      <!-- OpenRouter settings -->
-      <StackPanel Spacing="10" IsVisible="{Binding IsOpenRouter}">
-        <TextBlock Text="OpenRouter" FontSize="16" FontWeight="SemiBold" />
-        <StackPanel Spacing="5">
-          <TextBlock Text="API Key" />
-          <TextBox Text="{Binding OpenRouterApiKey}" PasswordChar="•" Watermark="sk-or-..." />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Original text language (Read Original)" />
+          <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SpeechSourceLanguage}" Width="200" />
         </StackPanel>
-        <StackPanel Spacing="5">
-          <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding OpenRouterModel}" Width="250" />
-        </StackPanel>
-        <StackPanel Spacing="5">
-          <ToggleSwitch IsChecked="{Binding OpenRouterAutoRotate}" OnContent="Auto-rotate free models" OffContent="Use selected model only" />
-          <TextBlock Text="Automatically cycles through free models per batch. On 429 error, switches to the next model." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" Spacing="10">
-          <Button Content="🔄 Fetch free models" Command="{Binding FetchFreeModelsCommand}" IsEnabled="{Binding !IsFetchingModels}" Padding="12,6" />
-          <TextBlock Text="{Binding FreeModelCount}" VerticalAlignment="Center" FontSize="12" Opacity="0.7" />
-        </StackPanel>
+
+        <Separator Margin="0,8" />
+
+        <!-- Save -->
+        <Button Content="&#x1F4BE; Save Settings" Command="{Binding SaveCommand}"
+                HorizontalAlignment="Left" Padding="20,8" FontSize="14" />
+        <TextBlock Text="{Binding StatusText}" Foreground="Green" TextWrapping="Wrap"
+                   IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
       </StackPanel>
+    </ScrollViewer>
 
-      <Separator Margin="0,5" />
-
-      <!-- DeepL -->
-      <TextBlock Text="DeepL" FontSize="16" FontWeight="SemiBold" />
-      <StackPanel Spacing="5">
-        <TextBlock Text="API Key" />
-        <TextBox Text="{Binding DeepLApiKey}" PasswordChar="•" Watermark="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx" />
-      </StackPanel>
-      <StackPanel Spacing="5">
-        <ToggleSwitch IsChecked="{Binding DeepLFreeApi}" OnContent="Free API (api-free.deepl.com)" OffContent="Paid API (api.deepl.com)" />
-        <TextBlock Text="Free tier: 500 000 chars/month. Register at deepl.com/pro#developer" FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-      </StackPanel>
-      <StackPanel Spacing="5">
-        <ToggleSwitch IsChecked="{Binding UseDeepLForMarkdown}" OnContent="Use DeepL for Markdown tab" OffContent="Use AI model for Markdown tab" />
-        <TextBlock Text="When enabled, the Markdown tab will use DeepL instead of the selected AI provider." FontSize="11" Opacity="0.6" TextWrapping="Wrap"/>
-      </StackPanel>
-
-      <Separator Margin="0,5" />
-
-      <!-- Azure Speech -->
-      <TextBlock Text="Azure Speech (Text-to-Speech)" FontSize="16" FontWeight="SemiBold" />
-      <StackPanel Spacing="5">
-        <TextBlock Text="API Key (Speech resource key)" />
-        <TextBox Text="{Binding AzureSpeechApiKey}" PasswordChar="•" Watermark="32-char key from Azure portal" />
-      </StackPanel>
-      <StackPanel Spacing="5">
-        <TextBlock Text="Region" />
-        <TextBox Text="{Binding AzureSpeechRegion}" Watermark="e.g. eastus, westeurope" />
-        <TextBlock Text="Find your region in Azure portal → Speech resource → Keys and Endpoint" FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
-      </StackPanel>
-      <StackPanel Spacing="5">
-        <TextBlock Text="Original text language (for Read Original)" />
-        <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SpeechSourceLanguage}" Width="250" />
-      </StackPanel>
-
-      <Separator Margin="0,5" />
-
-      <!-- Default Language -->
-      <StackPanel Spacing="5">
-        <TextBlock Text="Default Target Language" FontWeight="SemiBold" />
-        <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding DefaultLanguage}" Width="250" />
-      </StackPanel>
-
-      <!-- Rate Limiting -->
-      <Separator Margin="0,5" />
-      <TextBlock Text="Rate Limiting" FontSize="16" FontWeight="SemiBold" />
-
-      <StackPanel Spacing="5">
-        <TextBlock Text="Subtitle lines per batch" />
-        <NumericUpDown Value="{Binding BatchSize}" Minimum="5" Maximum="100" Increment="5" Width="150" />
-        <TextBlock Text="More lines per batch = fewer API calls, but may hit token limits" FontSize="11" Opacity="0.6" />
-      </StackPanel>
-
-      <StackPanel Spacing="5">
-        <TextBlock Text="Delay between requests (ms)" />
-        <NumericUpDown Value="{Binding DelayBetweenRequestsMs}" Minimum="0" Maximum="30000" Increment="500" Width="150" />
-        <TextBlock Text="GitHub free tier: 2000-3000ms recommended. 0 = no delay." FontSize="11" Opacity="0.6" />
-      </StackPanel>
-
-      <!-- Save Button -->
-      <Button Content="💾 Save Settings" Command="{Binding SaveCommand}" HorizontalAlignment="Left" Padding="20,8" />
-
-      <!-- Status -->
-      <TextBlock Text="{Binding StatusText}" Foreground="Green"
-                 TextWrapping="Wrap"
-                 IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    </StackPanel>
-  </ScrollViewer>
+  </Grid>
 </UserControl>

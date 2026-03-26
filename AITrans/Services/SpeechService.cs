@@ -18,57 +18,76 @@ public sealed class SpeechService : IDisposable
         ["Spanish"] = "es-ES-AlvaroNeural",
     };
 
-    private SpeechSynthesizer? _synthesizer;
+    // Used only to signal a running session to stop.
+    private CancellationTokenSource? _activeCts;
 
     private static string GetVoice(string language) =>
         VoiceMap.TryGetValue(language, out var voice) ? voice : "en-US-JennyNeural";
 
     /// <summary>
     /// Speaks each paragraph in sequence, one at a time.
-    /// Cancellable between (or during) paragraphs.
+    /// Cancellable via <paramref name="ct"/> or by calling <see cref="Stop"/>.
     /// </summary>
     public async Task SpeakParagraphsAsync(
         IEnumerable<string> paragraphs, string language,
         string apiKey, string region,
         CancellationToken ct = default)
     {
-        Stop(); // stop any running session
+        // Cancel any previously running session and wait for it to end.
+        var prev = Interlocked.Exchange(ref _activeCts, null);
+        prev?.Cancel();
+        prev?.Dispose();
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Interlocked.Exchange(ref _activeCts, linked);
 
         var config = SpeechConfig.FromSubscription(apiKey, region);
         config.SpeechSynthesisVoiceName = GetVoice(language);
-        _synthesizer = new SpeechSynthesizer(config);
 
-        // wire cancellation to stop the synthesizer
-        using var reg = ct.Register(() => _synthesizer?.StopSpeakingAsync());
+        // Create synthesizer inside the method so its lifetime is fully contained here.
+        using var synthesizer = new SpeechSynthesizer(config);
 
-        foreach (var paragraph in paragraphs)
+        // When cancelled, ask the SDK to stop the current utterance gracefully.
+        using var reg = linked.Token.Register(() =>
         {
-            ct.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(paragraph)) continue;
+            try { synthesizer.StopSpeakingAsync().Wait(2000); } catch { /* ignore */ }
+        });
 
-            var result = await _synthesizer.SpeakTextAsync(paragraph);
-            ct.ThrowIfCancellationRequested();
-
-            if (result.Reason == ResultReason.Canceled)
+        try
+        {
+            foreach (var paragraph in paragraphs)
             {
-                var details = SpeechSynthesisCancellationDetails.FromResult(result);
-                if (details.Reason == CancellationReason.Error)
-                    throw new InvalidOperationException(
-                        $"Azure Speech error {details.ErrorCode}: {details.ErrorDetails}");
-                break; // stopped externally (not an error)
+                linked.Token.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(paragraph)) continue;
+
+                var result = await synthesizer.SpeakTextAsync(paragraph);
+                linked.Token.ThrowIfCancellationRequested();
+
+                if (result.Reason == ResultReason.Canceled)
+                {
+                    var details = SpeechSynthesisCancellationDetails.FromResult(result);
+                    if (details.Reason == CancellationReason.Error)
+                        throw new InvalidOperationException(
+                            $"Azure Speech error {details.ErrorCode}: {details.ErrorDetails}");
+                    break; // stopped gracefully
+                }
             }
+        }
+        finally
+        {
+            // Clear the reference only if it still points to our own CTS.
+            Interlocked.CompareExchange(ref _activeCts, null, linked);
         }
     }
 
+    /// <summary>Stops the currently playing speech, if any.</summary>
     public void Stop()
     {
-        if (_synthesizer != null)
-        {
-            try { _synthesizer.StopSpeakingAsync().Wait(1000); } catch { /* ignore */ }
-            _synthesizer.Dispose();
-            _synthesizer = null;
-        }
+        var cts = Interlocked.Exchange(ref _activeCts, null);
+        cts?.Cancel();
+        cts?.Dispose();
     }
 
     public void Dispose() => Stop();
 }
+

@@ -106,6 +106,24 @@ public partial class SettingsViewModel : ViewModelBase
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
+    // GitHub Copilot inference endpoint selection
+    private static readonly string[] _ghEndpointLabels =
+    [
+        "Azure Inference  (models.inference.ai.azure.com)",
+        "GitHub Copilot API  (api.githubcopilot.com)",
+        "GitHub AI  (models.github.ai)",
+    ];
+    private static readonly string[] _ghEndpointUrls =
+    [
+        "https://models.inference.ai.azure.com/chat/completions",
+        "https://api.githubcopilot.com/chat/completions",
+        "https://models.github.ai/inference/chat/completions",
+    ];
+    public string[] GitHubEndpointLabels => _ghEndpointLabels;
+
+    [ObservableProperty]
+    private string _gitHubCopilotEndpointLabel = _ghEndpointLabels[0];
+
     // Always included regardless of what the API returns
     private static readonly string[] _ghCopilotDefaults =
     [
@@ -142,6 +160,18 @@ public partial class SettingsViewModel : ViewModelBase
         CustomGitHubModel = "";
     }
 
+    [RelayCommand]
+    private void RemoveGitHubModel()
+    {
+        if (string.IsNullOrEmpty(GitHubCopilotModel)) return;
+        var toRemove = GitHubCopilotModel;
+        var idx = GitHubCopilotModels.IndexOf(toRemove);
+        GitHubCopilotModels.Remove(toRemove);
+        _settingsService.Settings.GitHubCopilotModels = [.. GitHubCopilotModels];
+        if (GitHubCopilotModels.Count > 0)
+            GitHubCopilotModel = GitHubCopilotModels[Math.Max(0, idx - 1)];
+    }
+
     public SettingsViewModel(SettingsService settingsService, TranslationService translationService)
     {
         _settingsService = settingsService;
@@ -166,6 +196,9 @@ public partial class SettingsViewModel : ViewModelBase
         GeminiModel = s.GeminiModel;
         DeepSeekModel = s.DeepSeekModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
+        // Load GitHub endpoint label from saved URL
+        var urlIdx = Array.IndexOf(_ghEndpointUrls, s.GitHubCopilotInferenceUrl);
+        GitHubCopilotEndpointLabel = _ghEndpointLabels[urlIdx >= 0 ? urlIdx : 0];
         // Populate dropdowns from saved model lists
         // Merge saved list with hardcoded defaults (in case settings.json is missing some)
         var mergedOnLoad = s.GitHubCopilotModels
@@ -290,6 +323,9 @@ public partial class SettingsViewModel : ViewModelBase
         s.GeminiModel = GeminiModel;
         s.DeepSeekModel = DeepSeekModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;
+        // GitHub Copilot inference endpoint
+        var labelIdx = Array.IndexOf(_ghEndpointLabels, GitHubCopilotEndpointLabel);
+        s.GitHubCopilotInferenceUrl = _ghEndpointUrls[labelIdx >= 0 ? labelIdx : 0];
         s.DeepLApiKey = DeepLApiKey;
         s.DeepLFreeApi = DeepLFreeApi;
         s.UseDeepLForMarkdown = UseDeepLForMarkdown;

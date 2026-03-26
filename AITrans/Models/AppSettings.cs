@@ -78,12 +78,13 @@ public class AppSettings
         _ => OpenAiModel
     };
 
+    // GitHub Copilot inference endpoint (selectable in Settings)
+    public string GitHubCopilotInferenceUrl { get; set; } =
+        "https://models.inference.ai.azure.com/chat/completions";
+
     public string ActiveEndpoint => Provider switch
     {
-        AiProvider.GitHubCopilot =>
-        // "https://api.githubcopilot.com/chat/completions",
-        "https://models.inference.ai.azure.com/chat/completions",
-        // "https://models.github.ai/inference/chat/completions",
+        AiProvider.GitHubCopilot => GitHubCopilotInferenceUrl,
         AiProvider.OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
         AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",

@@ -116,26 +116,35 @@ public class CacheService
     public SubtitleCacheInfo? GetSubtitleCacheInfo(string filePath)
     {
         using var conn = Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT language, saved_at FROM subtitle_sessions WHERE file_path = @fp";
-        cmd.Parameters.AddWithValue("@fp", filePath);
-        using var r = cmd.ExecuteReader();
-        if (!r.Read()) return null;
 
-        var lang = r.GetString(0);
-        var savedAt = DateTime.Parse(r.GetString(1));
+        string lang;
+        DateTime savedAt;
 
-        cmd.CommandText = "SELECT COUNT(*), SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END) FROM subtitle_entries WHERE file_path = @fp";
-        using var r2 = cmd.ExecuteReader();
-        r2.Read();
-        return new SubtitleCacheInfo
+        using (var cmd = conn.CreateCommand())
         {
-            FilePath = filePath,
-            Language = lang,
-            SavedAt = savedAt,
-            TotalEntries = r2.GetInt32(0),
-            TranslatedEntries = r2.GetInt32(1)
-        };
+            cmd.CommandText = "SELECT language, saved_at FROM subtitle_sessions WHERE file_path = @fp";
+            cmd.Parameters.AddWithValue("@fp", filePath);
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) return null;
+            lang = r.GetString(0);
+            savedAt = DateTime.Parse(r.GetString(1));
+        }
+
+        using (var cmd2 = conn.CreateCommand())
+        {
+            cmd2.CommandText = "SELECT COUNT(*), SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END) FROM subtitle_entries WHERE file_path = @fp";
+            cmd2.Parameters.AddWithValue("@fp", filePath);
+            using var r2 = cmd2.ExecuteReader();
+            r2.Read();
+            return new SubtitleCacheInfo
+            {
+                FilePath = filePath,
+                Language = lang,
+                SavedAt = savedAt,
+                TotalEntries = r2.GetInt32(0),
+                TranslatedEntries = r2.GetInt32(1)
+            };
+        }
     }
 
     public List<SrtEntry>? LoadSubtitleEntries(string filePath)
@@ -175,29 +184,35 @@ public class CacheService
     public SubtitleCacheInfo? GetLatestSubtitleSession()
     {
         using var conn = Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT file_path, language, saved_at FROM subtitle_sessions ORDER BY saved_at DESC LIMIT 1";
-        using var r = cmd.ExecuteReader();
-        if (!r.Read()) return null;
 
-        var filePath = r.GetString(0);
-        var lang = r.GetString(1);
-        var savedAt = DateTime.Parse(r.GetString(2));
-        r.Close();
+        string filePath, lang;
+        DateTime savedAt;
 
-        using var cmd2 = conn.CreateCommand();
-        cmd2.CommandText = "SELECT COUNT(*), SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END) FROM subtitle_entries WHERE file_path = @fp";
-        cmd2.Parameters.AddWithValue("@fp", filePath);
-        using var r2 = cmd2.ExecuteReader();
-        r2.Read();
-        return new SubtitleCacheInfo
+        using (var cmd = conn.CreateCommand())
         {
-            FilePath = filePath,
-            Language = lang,
-            SavedAt = savedAt,
-            TotalEntries = r2.GetInt32(0),
-            TranslatedEntries = r2.GetInt32(1)
-        };
+            cmd.CommandText = "SELECT file_path, language, saved_at FROM subtitle_sessions ORDER BY saved_at DESC LIMIT 1";
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) return null;
+            filePath = r.GetString(0);
+            lang = r.GetString(1);
+            savedAt = DateTime.Parse(r.GetString(2));
+        }
+
+        using (var cmd2 = conn.CreateCommand())
+        {
+            cmd2.CommandText = "SELECT COUNT(*), SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END) FROM subtitle_entries WHERE file_path = @fp";
+            cmd2.Parameters.AddWithValue("@fp", filePath);
+            using var r2 = cmd2.ExecuteReader();
+            r2.Read();
+            return new SubtitleCacheInfo
+            {
+                FilePath = filePath,
+                Language = lang,
+                SavedAt = savedAt,
+                TotalEntries = r2.GetInt32(0),
+                TranslatedEntries = r2.GetInt32(1)
+            };
+        }
     }
 
     // ─── Markdown ─────────────────────────────────────────────────────────────
