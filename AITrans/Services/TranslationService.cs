@@ -15,7 +15,17 @@ namespace AITrans.Services;
 
 public class TranslationService
 {
-    private static readonly HttpClient HttpClient = new();
+    private static readonly HttpClient HttpClient = new(new SocketsHttpHandler
+    {
+        // Explicitly enable TLS 1.2 and 1.3 to avoid SSL handshake failures
+        // on endpoints like api.x.ai that require modern TLS cipher suites.
+        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+        {
+            EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12
+                | System.Security.Authentication.SslProtocols.Tls13
+        },
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+    });
     private const int MaxRetries = 3;
     private int _rotationIndex;
 
@@ -55,7 +65,7 @@ public class TranslationService
     public async Task<List<string>> TranslateDeepLBatchAsync(
         List<string> texts, string targetLanguage, string apiKey, bool freeApi,
         IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
     {
         var endpoint = freeApi
             ? "https://api-free.deepl.com/v2/translate"
@@ -66,6 +76,10 @@ public class TranslationService
         for (int i = 0; i < texts.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Pause every 10 requests to stay within DeepL rate limits
+            if (i > 0 && i % 10 == 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
 
             var payload = new
             {
@@ -174,6 +188,24 @@ public class TranslationService
             if (!string.IsNullOrEmpty(modelName))
                 target.Add(modelName);
         }
+    }
+
+    /// <summary>
+    /// Fetches available models from the Groq API (OpenAI-compatible /v1/models endpoint).
+    /// </summary>
+    public async Task<List<string>> FetchGroqModelsAsync(string apiKey, CancellationToken ct = default)
+    {
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            "https://api.x.ai/v1/models");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        using var resp = await HttpClient.SendAsync(req, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (resp.IsSuccessStatusCode)
+            ExtractModelsFromArray(json, models);
+
+        return models.OrderBy(m => m).ToList();
     }
 
     /// <summary>
@@ -326,7 +358,7 @@ public class TranslationService
         CancellationToken ct, AppSettings? settings = null)
     {
         if (settings?.Provider == AiProvider.Gemini)
-            return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct);
+            return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
 
         var requestBody = new
         {
@@ -336,7 +368,7 @@ public class TranslationService
                 new { role = "system", content = systemPrompt },
                 new { role = "user", content = userMessage }
             },
-            temperature = 1.0
+            temperature = settings?.Temperature ?? 1.0
         };
 
         var json = JsonSerializer.Serialize(requestBody);
@@ -366,7 +398,7 @@ public class TranslationService
 
     private async Task<string> CallGeminiApiAsync(
         string systemPrompt, string userMessage, string apiKey, string model, string baseEndpoint,
-        CancellationToken ct)
+        CancellationToken ct, AppSettings? settings = null)
     {
         // Gemini uses key in query string and model in path
         var url = $"{baseEndpoint}/{model}:generateContent?key={Uri.EscapeDataString(apiKey)}";
@@ -381,7 +413,7 @@ public class TranslationService
             {
                 new { role = "user", parts = new[] { new { text = userMessage } } }
             },
-            generationConfig = new { temperature = 0.3 }
+            generationConfig = new { temperature = settings?.Temperature ?? 0.3 }
         };
 
         var json = JsonSerializer.Serialize(requestBody);

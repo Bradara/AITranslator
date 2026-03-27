@@ -8,7 +8,8 @@ public enum AiProvider
     GitHubCopilot,
     OpenRouter,
     Gemini,
-    DeepSeek
+    DeepSeek,
+    Groq
 }
 
 public class AppSettings
@@ -20,12 +21,14 @@ public class AppSettings
     public string OpenRouterApiKey { get; set; } = "";
     public string GeminiApiKey { get; set; } = "";
     public string DeepSeekApiKey { get; set; } = "";
+    public string GroqApiKey { get; set; } = "";
 
     public string OpenAiModel { get; set; } = "gpt-4o-mini";
     public string GitHubCopilotModel { get; set; } = "gpt-4o";
     public string OpenRouterModel { get; set; } = "google/gemini-2.0-flash-exp:free";
     public string GeminiModel { get; set; } = "gemini-2.0-flash";
     public string DeepSeekModel { get; set; } = "deepseek-chat";
+    public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -34,6 +37,14 @@ public class AppSettings
         "gpt-4o", "gpt-4o-mini",
         "claude-haiku-4.5", "claude-sonnet-4",
         "gemini-3-flash-preview",
+    ];
+
+    public List<string> GroqModels { get; set; } =
+    [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768",
     ];
 
     public List<string> OpenRouterFreeModels { get; set; } =
@@ -58,7 +69,9 @@ public class AppSettings
     public string DefaultLanguage { get; set; } = "Bulgarian";
 
     public int BatchSize { get; set; } = 30;
+    public int MarkdownBatchSize { get; set; } = 10;
     public int DelayBetweenRequestsMs { get; set; } = 3000;
+    public double Temperature { get; set; } = 1.0;
 
     public string ActiveApiKey => Provider switch
     {
@@ -66,6 +79,7 @@ public class AppSettings
         AiProvider.OpenRouter => OpenRouterApiKey,
         AiProvider.Gemini => GeminiApiKey,
         AiProvider.DeepSeek => DeepSeekApiKey,
+        AiProvider.Groq => GroqApiKey,
         _ => OpenAiApiKey
     };
 
@@ -75,6 +89,7 @@ public class AppSettings
         AiProvider.OpenRouter => OpenRouterModel,
         AiProvider.Gemini => GeminiModel,
         AiProvider.DeepSeek => DeepSeekModel,
+        AiProvider.Groq => GroqModel,
         _ => OpenAiModel
     };
 
@@ -88,6 +103,7 @@ public class AppSettings
         AiProvider.OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
         AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
+        AiProvider.Groq => "https://api.x.ai/v1/chat/completions",
         _ => "https://api.openai.com/v1/chat/completions"
     };
 }

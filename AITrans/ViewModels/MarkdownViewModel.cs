@@ -353,7 +353,7 @@ public partial class MarkdownViewModel : ViewModelBase
 
                 var translations = await _translationService.TranslateDeepLBatchAsync(
                     texts, SelectedLanguage, settings.DeepLApiKey, settings.DeepLFreeApi,
-                    progressReporter, OnEntryTranslated, _cts.Token);
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 
                 for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
                 {
@@ -371,8 +371,8 @@ public partial class MarkdownViewModel : ViewModelBase
                     return;
                 }
 
-                // Use small batch size for markdown paragraphs (max 5)
-                var batchSize = Math.Min(settings.BatchSize, 5);
+                // Use the dedicated markdown batch size setting
+                var batchSize = settings.MarkdownBatchSize > 0 ? settings.MarkdownBatchSize : 10;
 
                 var translations = await _translationService.TranslateSubtitleBatchAsync(
                     texts, SelectedLanguage, apiKey, settings.ActiveModel, settings.ActiveEndpoint,

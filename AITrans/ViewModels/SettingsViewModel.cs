@@ -20,6 +20,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsOpenRouter))]
     [NotifyPropertyChangedFor(nameof(IsGemini))]
     [NotifyPropertyChangedFor(nameof(IsDeepSeek))]
+    [NotifyPropertyChangedFor(nameof(IsGroq))]
     private string _selectedProvider = "OpenAI";
 
     public bool IsOpenAi => SelectedProvider == "OpenAI";
@@ -27,6 +28,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsOpenRouter => SelectedProvider == "OpenRouter";
     public bool IsGemini => SelectedProvider == "Gemini";
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
+    public bool IsGroq => SelectedProvider == "xAI";
 
     [ObservableProperty]
     private string _openAiApiKey = "";
@@ -44,6 +46,9 @@ public partial class SettingsViewModel : ViewModelBase
     private string _deepSeekApiKey = "";
 
     [ObservableProperty]
+    private string _groqApiKey = "";
+
+    [ObservableProperty]
     private string _openAiModel = "gpt-4o-mini";
 
     [ObservableProperty]
@@ -57,6 +62,9 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _deepSeekModel = "deepseek-chat";
+
+    [ObservableProperty]
+    private string _groqModel = "llama-3.3-70b-versatile";
 
     [ObservableProperty]
     private bool _openRouterAutoRotate = true;
@@ -77,7 +85,13 @@ public partial class SettingsViewModel : ViewModelBase
     private int _batchSize = 30;
 
     [ObservableProperty]
+    private int _markdownBatchSize = 10;
+
+    [ObservableProperty]
     private int _delayBetweenRequestsMs = 2000;
+
+    [ObservableProperty]
+    private double _temperature = 1.0;
 
     [ObservableProperty]
     private string _statusText = "";
@@ -102,7 +116,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _speechSourceLanguage = "English";
 
-    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek"];
+    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI"];
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
@@ -134,6 +148,46 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private ObservableCollection<string> _gitHubCopilotModels = [];
+
+    // Groq models
+    private static readonly string[] _groqDefaults =
+    [
+        "grok-4-1-fast-reasoning",
+        "grok-4-1-fast-non-reasoning",
+    ];
+
+    [ObservableProperty]
+    private ObservableCollection<string> _groqModels = [];
+
+    [ObservableProperty]
+    private string _customGroqModel = "";
+
+    [RelayCommand]
+    private void AddCustomGroqModel()
+    {
+        var m = CustomGroqModel.Trim();
+        if (string.IsNullOrEmpty(m)) return;
+        if (!GroqModels.Contains(m, StringComparer.OrdinalIgnoreCase))
+        {
+            GroqModels.Add(m);
+            _settingsService.Settings.GroqModels = [.. GroqModels];
+        }
+        GroqModel = m;
+        CustomGroqModel = "";
+    }
+
+    [RelayCommand]
+    private void RemoveGroqModel()
+    {
+        if (string.IsNullOrEmpty(GroqModel)) return;
+        var toRemove = GroqModel;
+        var idx = GroqModels.IndexOf(toRemove);
+        GroqModels.Remove(toRemove);
+        _settingsService.Settings.GroqModels = [.. GroqModels];
+        if (GroqModels.Count > 0)
+            GroqModel = GroqModels[Math.Max(0, idx - 1)];
+    }
+
     public string[] GeminiModels { get; } = [
         "gemini-2.0-flash",
         "gemini-2.5-flash",
@@ -183,6 +237,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.OpenRouter => "OpenRouter",
             AiProvider.Gemini => "Gemini",
             AiProvider.DeepSeek => "DeepSeek",
+            AiProvider.Groq => "xAI",
             _ => "OpenAI"
         };
         OpenAiApiKey = s.OpenAiApiKey;
@@ -190,11 +245,13 @@ public partial class SettingsViewModel : ViewModelBase
         OpenRouterApiKey = s.OpenRouterApiKey;
         GeminiApiKey = s.GeminiApiKey;
         DeepSeekApiKey = s.DeepSeekApiKey;
+        GroqApiKey = s.GroqApiKey;
         OpenAiModel = s.OpenAiModel;
         GitHubCopilotModel = s.GitHubCopilotModel;
         OpenRouterModel = s.OpenRouterModel;
         GeminiModel = s.GeminiModel;
         DeepSeekModel = s.DeepSeekModel;
+        GroqModel = s.GroqModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
         // Load GitHub endpoint label from saved URL
         var urlIdx = Array.IndexOf(_ghEndpointUrls, s.GitHubCopilotInferenceUrl);
@@ -210,6 +267,14 @@ public partial class SettingsViewModel : ViewModelBase
         _settingsService.Settings.GitHubCopilotModels = mergedOnLoad;
         OpenRouterModels = new ObservableCollection<string>(s.OpenRouterFreeModels);
         FreeModelCount = $"{s.OpenRouterFreeModels.Count} free models loaded";
+        // Groq models
+        var mergedGroq = s.GroqModels
+            .Concat(_groqDefaults)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m)
+            .ToList();
+        GroqModels = new ObservableCollection<string>(mergedGroq);
+        _settingsService.Settings.GroqModels = mergedGroq;
         DeepLApiKey = s.DeepLApiKey;
         DeepLFreeApi = s.DeepLFreeApi;
         UseDeepLForMarkdown = s.UseDeepLForMarkdown;
@@ -218,7 +283,49 @@ public partial class SettingsViewModel : ViewModelBase
         SpeechSourceLanguage = s.SpeechSourceLanguage;
         DefaultLanguage = s.DefaultLanguage;
         BatchSize = s.BatchSize;
+        MarkdownBatchSize = s.MarkdownBatchSize;
         DelayBetweenRequestsMs = s.DelayBetweenRequestsMs;
+        Temperature = s.Temperature;
+    }
+
+    [RelayCommand]
+    private async Task FetchGroqModelsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GroqApiKey))
+        {
+            StatusText = "Enter xAI API key first.";
+            return;
+        }
+
+        IsFetchingModels = true;
+        StatusText = "Fetching models from xAI...";
+
+        try
+        {
+            var models = await _translationService.FetchGroqModelsAsync(GroqApiKey);
+
+            var merged = GroqModels
+                .Concat(models)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m)
+                .ToList();
+
+            GroqModels = new ObservableCollection<string>(merged);
+            _settingsService.Settings.GroqModels = merged;
+
+            if (merged.Count > 0 && !merged.Contains(GroqModel, StringComparer.OrdinalIgnoreCase))
+                GroqModel = merged[0];
+
+            StatusText = $"Found {models.Count} xAI models ({merged.Count} total).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error fetching models: {ex.Message}";
+        }
+        finally
+        {
+            IsFetchingModels = false;
+        }
     }
 
     [RelayCommand]
@@ -310,6 +417,7 @@ public partial class SettingsViewModel : ViewModelBase
             "OpenRouter" => AiProvider.OpenRouter,
             "Gemini" => AiProvider.Gemini,
             "DeepSeek" => AiProvider.DeepSeek,
+            "xAI" => AiProvider.Groq,
             _ => AiProvider.OpenAI
         };
         s.OpenAiApiKey = OpenAiApiKey;
@@ -317,11 +425,14 @@ public partial class SettingsViewModel : ViewModelBase
         s.OpenRouterApiKey = OpenRouterApiKey;
         s.GeminiApiKey = GeminiApiKey;
         s.DeepSeekApiKey = DeepSeekApiKey;
+        s.GroqApiKey = GroqApiKey;
         s.OpenAiModel = OpenAiModel;
         s.GitHubCopilotModel = GitHubCopilotModel;
         s.OpenRouterModel = OpenRouterModel;
         s.GeminiModel = GeminiModel;
         s.DeepSeekModel = DeepSeekModel;
+        s.GroqModel = GroqModel;
+        s.GroqModels = [.. GroqModels];
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;
         // GitHub Copilot inference endpoint
         var labelIdx = Array.IndexOf(_ghEndpointLabels, GitHubCopilotEndpointLabel);
@@ -334,7 +445,9 @@ public partial class SettingsViewModel : ViewModelBase
         s.SpeechSourceLanguage = SpeechSourceLanguage;
         s.DefaultLanguage = DefaultLanguage;
         s.BatchSize = BatchSize;
+        s.MarkdownBatchSize = MarkdownBatchSize;
         s.DelayBetweenRequestsMs = DelayBetweenRequestsMs;
+        s.Temperature = Temperature;
         _settingsService.Save();
         StatusText = "Settings saved successfully.";
     }
