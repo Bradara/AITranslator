@@ -10,9 +10,9 @@ public sealed class SpeechService : IDisposable
 {
     private static readonly Dictionary<string, string> VoiceMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Bulgarian"] = "bg-BG-BorislavNeural",
+        ["Bulgarian"] = "bg-BG-KalinaNeural",
         ["Russian"] = "ru-RU-DmitryNeural",
-        ["English"] = "en-US-JennyNeural",
+        ["English"] = "en-US-AmandaMultilingualNeural",
         ["German"] = "de-DE-ConradNeural",
         ["French"] = "fr-FR-HenriNeural",
         ["Spanish"] = "es-ES-AlvaroNeural",

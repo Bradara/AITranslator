@@ -6,7 +6,7 @@
         xmlns:views="using:AITrans.Views"
         mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
         x:Class="AITrans.Views.MainWindow"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/translation_logo2.ico"
         Title="AI Translator"
         Width="1000" Height="700"
         MinWidth="800" MinHeight="500">

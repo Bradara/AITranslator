@@ -5,8 +5,13 @@
     See https://docs.avaloniaui.net/docs/guides/platforms/platform-specific-code/dotnet for more details.-->
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <ApplicationIcon>..\\AITrans\\Assets\\translation_logo2.ico</ApplicationIcon>
+    <ApplicationIcon Condition="$([MSBuild]::IsOSPlatform('Windows'))">../AITrans/Assets/translation_logo2.ico</ApplicationIcon>
+    <CFBundleIconFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">translation_logo2</CFBundleIconFile>
   </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <BundleResource Include="../AITrans/Assets/translation_logo2.icns" />
+  </ItemGroup>
 
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>
