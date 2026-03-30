@@ -18,6 +18,9 @@ public class SubtitleCacheInfo
 public class MarkdownCacheInfo
 {
     public string SessionKey { get; init; } = "";
+    public string FileName => SessionKey is "current" or "unsaved"
+        ? "(поставен текст)"
+        : Path.GetFileName(SessionKey);
     public string Language { get; init; } = "";
     public DateTime SavedAt { get; init; }
     public int TotalParagraphs { get; init; }
@@ -215,39 +218,66 @@ public class CacheService
         }
     }
 
+    /// <summary>Returns all cached subtitle sessions sorted by most recent first.</summary>
+    public List<SubtitleCacheInfo> GetAllSubtitleSessions()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT s.file_path, s.language, s.saved_at,
+                   COUNT(e.entry_index),
+                   COALESCE(SUM(CASE WHEN e.translated_text != '' THEN 1 ELSE 0 END), 0)
+            FROM subtitle_sessions s
+            LEFT JOIN subtitle_entries e ON s.file_path = e.file_path
+            GROUP BY s.file_path, s.language, s.saved_at
+            ORDER BY s.saved_at DESC
+            """;
+        using var r = cmd.ExecuteReader();
+        var list = new List<SubtitleCacheInfo>();
+        while (r.Read())
+        {
+            list.Add(new SubtitleCacheInfo
+            {
+                FilePath = r.GetString(0),
+                Language = r.GetString(1),
+                SavedAt = DateTime.Parse(r.GetString(2)),
+                TotalEntries = r.GetInt32(3),
+                TranslatedEntries = r.GetInt32(4)
+            });
+        }
+        return list;
+    }
+
     // ─── Markdown ─────────────────────────────────────────────────────────────
 
-    /// <summary>Single slot key used for markdown (always overwrite).</summary>
-    public const string MarkdownSlot = "current";
-
-    public void SaveMarkdownSession(string inputText, string language, IEnumerable<MarkdownEntry> paragraphs)
+    public void SaveMarkdownSession(string filePath, string inputText, string language, IEnumerable<MarkdownEntry> paragraphs)
     {
         using var conn = Open();
         using var tx = conn.BeginTransaction();
 
-        Execute(conn, "DELETE FROM markdown_sessions WHERE session_key = @sk", ("@sk", MarkdownSlot));
-        Execute(conn, "DELETE FROM markdown_entries WHERE session_key = @sk", ("@sk", MarkdownSlot));
+        Execute(conn, "DELETE FROM markdown_sessions WHERE session_key = @sk", ("@sk", filePath));
+        Execute(conn, "DELETE FROM markdown_entries WHERE session_key = @sk", ("@sk", filePath));
         Execute(conn,
             "INSERT INTO markdown_sessions (session_key, input_text, language, saved_at) VALUES (@sk, @inp, @lang, @at)",
-            ("@sk", MarkdownSlot), ("@inp", inputText), ("@lang", language), ("@at", DateTime.UtcNow.ToString("o")));
+            ("@sk", filePath), ("@inp", inputText), ("@lang", language), ("@at", DateTime.UtcNow.ToString("o")));
 
         foreach (var p in paragraphs)
         {
             Execute(conn,
                 "INSERT INTO markdown_entries (session_key, paragraph_index, original_text, translated_text) VALUES (@sk, @idx, @orig, @trans)",
-                ("@sk", MarkdownSlot), ("@idx", p.Index),
+                ("@sk", filePath), ("@idx", p.Index),
                 ("@orig", p.OriginalText), ("@trans", p.TranslatedText ?? ""));
         }
 
         tx.Commit();
     }
 
-    public MarkdownCacheInfo? GetMarkdownCacheInfo()
+    public MarkdownCacheInfo? GetMarkdownCacheInfo(string filePath)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT language, saved_at FROM markdown_sessions WHERE session_key = @sk";
-        cmd.Parameters.AddWithValue("@sk", MarkdownSlot);
+        cmd.Parameters.AddWithValue("@sk", filePath);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
 
@@ -255,13 +285,13 @@ public class CacheService
         var savedAt = DateTime.Parse(r.GetString(1));
 
         using var cmd2 = conn.CreateCommand();
-        cmd2.CommandText = "SELECT COUNT(*), SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END) FROM markdown_entries WHERE session_key = @sk";
-        cmd2.Parameters.AddWithValue("@sk", MarkdownSlot);
+        cmd2.CommandText = "SELECT COUNT(*), COALESCE(SUM(CASE WHEN translated_text != '' THEN 1 ELSE 0 END), 0) FROM markdown_entries WHERE session_key = @sk";
+        cmd2.Parameters.AddWithValue("@sk", filePath);
         using var r2 = cmd2.ExecuteReader();
         r2.Read();
         return new MarkdownCacheInfo
         {
-            SessionKey = MarkdownSlot,
+            SessionKey = filePath,
             Language = lang,
             SavedAt = savedAt,
             TotalParagraphs = r2.GetInt32(0),
@@ -269,18 +299,18 @@ public class CacheService
         };
     }
 
-    public (string inputText, List<MarkdownEntry>)? LoadMarkdownSession()
+    public (string inputText, List<MarkdownEntry>)? LoadMarkdownSession(string filePath)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT input_text FROM markdown_sessions WHERE session_key = @sk";
-        cmd.Parameters.AddWithValue("@sk", MarkdownSlot);
+        cmd.Parameters.AddWithValue("@sk", filePath);
         var inputText = cmd.ExecuteScalar() as string;
         if (inputText == null) return null;
 
         using var cmd2 = conn.CreateCommand();
         cmd2.CommandText = "SELECT paragraph_index, original_text, translated_text FROM markdown_entries WHERE session_key = @sk ORDER BY paragraph_index";
-        cmd2.Parameters.AddWithValue("@sk", MarkdownSlot);
+        cmd2.Parameters.AddWithValue("@sk", filePath);
         using var r = cmd2.ExecuteReader();
         var paragraphs = new List<MarkdownEntry>();
         while (r.Read())
@@ -295,11 +325,48 @@ public class CacheService
         return (inputText, paragraphs);
     }
 
-    public void ClearMarkdownSession()
+    public void ClearMarkdownSession(string filePath)
     {
         using var conn = Open();
-        Execute(conn, "DELETE FROM markdown_sessions WHERE session_key = @sk", ("@sk", MarkdownSlot));
-        Execute(conn, "DELETE FROM markdown_entries WHERE session_key = @sk", ("@sk", MarkdownSlot));
+        Execute(conn, "DELETE FROM markdown_sessions WHERE session_key = @sk", ("@sk", filePath));
+        Execute(conn, "DELETE FROM markdown_entries WHERE session_key = @sk", ("@sk", filePath));
+    }
+
+    /// <summary>Returns all cached markdown sessions sorted by most recent first.</summary>
+    public List<MarkdownCacheInfo> GetAllMarkdownSessions()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT s.session_key, s.language, s.saved_at,
+                   COUNT(e.paragraph_index),
+                   COALESCE(SUM(CASE WHEN e.translated_text != '' THEN 1 ELSE 0 END), 0)
+            FROM markdown_sessions s
+            LEFT JOIN markdown_entries e ON s.session_key = e.session_key
+            GROUP BY s.session_key, s.language, s.saved_at
+            ORDER BY s.saved_at DESC
+            """;
+        using var r = cmd.ExecuteReader();
+        var list = new List<MarkdownCacheInfo>();
+        while (r.Read())
+        {
+            list.Add(new MarkdownCacheInfo
+            {
+                SessionKey = r.GetString(0),
+                Language = r.GetString(1),
+                SavedAt = DateTime.Parse(r.GetString(2)),
+                TotalParagraphs = r.GetInt32(3),
+                TranslatedParagraphs = r.GetInt32(4)
+            });
+        }
+        return list;
+    }
+
+    /// <summary>Returns metadata for the most recently saved markdown session, or null if none.</summary>
+    public MarkdownCacheInfo? GetLatestMarkdownSession()
+    {
+        var all = GetAllMarkdownSessions();
+        return all.Count > 0 ? all[0] : null;
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────

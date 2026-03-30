@@ -49,6 +49,8 @@ public partial class SubtitlesViewModel : ViewModelBase
 
     public bool HasEntries => Entries.Count > 0;
 
+    internal CacheService CacheService => _cacheService;
+
     public SubtitlesViewModel(TranslationService translationService, SettingsService settingsService, CacheService cacheService)
     {
         _translationService = translationService;
@@ -77,10 +79,8 @@ public partial class SubtitlesViewModel : ViewModelBase
     {
         SrtParser.Write(path, [.. Entries]);
         StatusText = $"Saved to {System.IO.Path.GetFileName(path)}";
-        // Clear cache once the file is properly saved
-        if (LoadedFilePath != null) _cacheService.ClearSubtitleSession(LoadedFilePath);
-        _cacheService.ClearSubtitleSession("unsaved");
-        UpdateCacheInfo(null);
+        // Cache is preserved so translation progress isn't lost
+        UpdateCacheInfo(LoadedFilePath);
     }
 
     [RelayCommand]
@@ -103,34 +103,40 @@ public partial class SubtitlesViewModel : ViewModelBase
             keyToLoad = _cacheService.GetLatestSubtitleSession()?.FilePath;
 
         if (keyToLoad == null) { StatusText = "No cached session found."; return; }
+        LoadCacheFromKey(keyToLoad);
+    }
 
-        var entries = _cacheService.LoadSubtitleEntries(keyToLoad);
+    public void LoadCacheFromKey(string key)
+    {
+        var entries = _cacheService.LoadSubtitleEntries(key);
         if (entries == null || entries.Count == 0) { StatusText = "Cached session is empty."; return; }
 
-        if (LoadedFilePath == null) LoadedFilePath = keyToLoad;
+        if (LoadedFilePath == null) LoadedFilePath = key;
         Entries = new ObservableCollection<SrtEntry>(entries);
         OnPropertyChanged(nameof(HasEntries));
-        var info = _cacheService.GetSubtitleCacheInfo(keyToLoad);
+        var info = _cacheService.GetSubtitleCacheInfo(key);
         StatusText = $"Restored {entries.Count} entries from cache ({info?.TranslatedEntries}/{info?.TotalEntries} translated).";
-        UpdateCacheInfo(keyToLoad);
+        UpdateCacheInfo(key);
     }
+
+    public void RefreshCacheInfo() => UpdateCacheInfo(LoadedFilePath);
 
     private void UpdateCacheInfo(string? filePath)
     {
-        SubtitleCacheInfo? info = filePath != null ? _cacheService.GetSubtitleCacheInfo(filePath) : null;
-        info ??= _cacheService.GetLatestSubtitleSession();
-        if (info != null)
-        {
-            HasCache = true;
-            var name = System.IO.Path.GetFileName(info.FilePath);
-            if (string.IsNullOrEmpty(name)) name = info.FilePath;
-            CacheInfo = $"Cached: {name} — {info.TranslatedEntries}/{info.TotalEntries} translated — {info.SavedAt.ToLocalTime():HH:mm}";
-        }
-        else
+        var all = _cacheService.GetAllSubtitleSessions();
+        if (all.Count == 0)
         {
             HasCache = false;
             CacheInfo = "";
+            return;
         }
+        HasCache = true;
+        var info = (filePath != null ? all.Find(s => s.FilePath == filePath) : null) ?? all[0];
+        var name = System.IO.Path.GetFileName(info.FilePath);
+        if (string.IsNullOrEmpty(name)) name = info.FilePath;
+        CacheInfo = all.Count == 1
+            ? $"Cached: {name} — {info.TranslatedEntries}/{info.TotalEntries} translated — {info.SavedAt.ToLocalTime():HH:mm}"
+            : $"Cached: {all.Count} sessions (latest: {name} — {info.SavedAt.ToLocalTime():HH:mm})";
     }
 
     [RelayCommand]

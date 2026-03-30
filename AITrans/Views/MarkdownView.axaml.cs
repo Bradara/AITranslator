@@ -25,6 +25,19 @@ public partial class MarkdownView : UserControl
         ParagraphGrid.SelectionChanged += OnGridSelectionChanged;
     }
 
+    private async void OnRestoreCacheClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownViewModel vm) return;
+        var window = new CacheHistoryWindow(vm.CacheService, isSubtitle: false);
+        if (TopLevel.GetTopLevel(this) is Window parent)
+            await window.ShowDialog(parent);
+        else
+            window.Show();
+        vm.RefreshCacheInfo();
+        if (window.SelectedKey != null)
+            vm.LoadCacheFromKey(window.SelectedKey);
+    }
+
     // ── Scroll position: save on tab deactivation, restore on activation ────
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

@@ -30,6 +30,19 @@ public partial class SubtitlesView : UserControl
         }
     }
 
+    private async void OnRestoreCacheClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SubtitlesViewModel vm) return;
+        var window = new CacheHistoryWindow(vm.CacheService, isSubtitle: true);
+        if (TopLevel.GetTopLevel(this) is Window parent)
+            await window.ShowDialog(parent);
+        else
+            window.Show();
+        vm.RefreshCacheInfo();
+        if (window.SelectedKey != null)
+            vm.LoadCacheFromKey(window.SelectedKey);
+    }
+
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);
@@ -44,9 +57,9 @@ public partial class SubtitlesView : UserControl
             ]
         });
 
-        if (files.Count > 0 && DataContext is SubtitlesViewModel vm)
+        if (files.Count > 0 && DataContext is SubtitlesViewModel vm2)
         {
-            vm.LoadFile(files[0].Path.LocalPath);
+            vm2.LoadFile(files[0].Path.LocalPath);
         }
     }
 
@@ -64,9 +77,9 @@ public partial class SubtitlesView : UserControl
             ]
         });
 
-        if (file != null && DataContext is SubtitlesViewModel vm)
+        if (file != null && DataContext is SubtitlesViewModel vm2)
         {
-            vm.SaveFile(file.Path.LocalPath);
+            vm2.SaveFile(file.Path.LocalPath);
         }
     }
 }

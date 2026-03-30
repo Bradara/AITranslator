@@ -61,6 +61,8 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public bool HasParagraphs => Paragraphs.Count > 0;
 
+    internal CacheService CacheService => _cacheService;
+
     public MarkdownViewModel(TranslationService translationService, SettingsService settingsService, SpeechService speechService, CacheService cacheService)
     {
         _translationService = translationService;
@@ -90,7 +92,7 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         File.WriteAllText(path, GetCombinedTranslation());
         StatusText = $"Saved to {Path.GetFileName(path)}";
-        _cacheService.ClearMarkdownSession();
+        // Cache is preserved so translation progress isn't lost
         UpdateCacheInfo();
     }
 
@@ -98,7 +100,8 @@ public partial class MarkdownViewModel : ViewModelBase
     private void SaveCache()
     {
         if (Paragraphs.Count == 0) { StatusText = "Nothing to cache."; return; }
-        _cacheService.SaveMarkdownSession(InputText, SelectedLanguage, Paragraphs);
+        var sessionKey = LoadedFilePath ?? "unsaved";
+        _cacheService.SaveMarkdownSession(sessionKey, InputText, SelectedLanguage, Paragraphs);
         UpdateCacheInfo();
         StatusText = $"Session cached ({Paragraphs.Count} paragraphs).";
     }
@@ -106,35 +109,49 @@ public partial class MarkdownViewModel : ViewModelBase
     [RelayCommand]
     private void LoadCache()
     {
-        var result = _cacheService.LoadMarkdownSession();
-        if (result == null) { StatusText = "No cached session found."; return; }
+        var key = LoadedFilePath ?? "unsaved";
+        if (_cacheService.GetMarkdownCacheInfo(key) == null)
+            key = _cacheService.GetLatestMarkdownSession()?.SessionKey ?? "";
+        if (string.IsNullOrEmpty(key)) { StatusText = "No cached session found."; return; }
+        LoadCacheFromKey(key);
+    }
+
+    public void LoadCacheFromKey(string key)
+    {
+        var result = _cacheService.LoadMarkdownSession(key);
+        if (result == null) { StatusText = "Cached session not found."; return; }
 
         var (inputText, paragraphs) = result.Value;
         InputText = inputText;
+        if (key != "unsaved" && key != "current" && File.Exists(key))
+            LoadedFilePath = key;
         Paragraphs = new ObservableCollection<MarkdownEntry>(paragraphs);
         OnPropertyChanged(nameof(HasParagraphs));
-        var info = _cacheService.GetMarkdownCacheInfo();
+        var info = _cacheService.GetMarkdownCacheInfo(key);
         StatusText = $"Restored {paragraphs.Count} paragraphs from cache ({info?.TranslatedParagraphs}/{info?.TotalParagraphs} translated).";
         UpdateCacheInfo();
-        // Scroll to first untranslated paragraph so work continues where it left off
         ScrollToRow = Paragraphs
             .Select((p, i) => (p, i))
             .FirstOrDefault(x => string.IsNullOrEmpty(x.p.TranslatedText)).i;
     }
 
+    public void RefreshCacheInfo() => UpdateCacheInfo();
+
     private void UpdateCacheInfo()
     {
-        var info = _cacheService.GetMarkdownCacheInfo();
-        if (info != null)
-        {
-            HasCache = true;
-            CacheInfo = $"Cached: {info.TranslatedParagraphs}/{info.TotalParagraphs} paragraphs — {info.SavedAt.ToLocalTime():HH:mm}";
-        }
-        else
+        var all = _cacheService.GetAllMarkdownSessions();
+        if (all.Count == 0)
         {
             HasCache = false;
             CacheInfo = "";
+            return;
         }
+        HasCache = true;
+        var key = LoadedFilePath ?? "unsaved";
+        var info = all.Find(s => s.SessionKey == key) ?? all[0];
+        CacheInfo = all.Count == 1
+            ? $"Cached: {info.FileName} — {info.TranslatedParagraphs}/{info.TotalParagraphs} paragraphs — {info.SavedAt.ToLocalTime():HH:mm}"
+            : $"Cached: {all.Count} sessions (latest: {info.FileName} — {info.SavedAt.ToLocalTime():HH:mm})";
     }
 
     [RelayCommand]
