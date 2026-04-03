@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -49,6 +50,11 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasUnsavedChanges;
 
+    [ObservableProperty]
+    private string? _selectedRecentFile;
+
+    public ObservableCollection<string> RecentFiles { get; } = [];
+
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
     public MarkdownPreviewViewModel(SpeechService speechService, SettingsService settingsService)
@@ -60,6 +66,20 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var src = settingsService.Settings.SpeechSourceLanguage;
         if (!string.IsNullOrWhiteSpace(src) && AvailableLanguages.Contains(src))
             ReadLanguage = src;
+
+        foreach (var file in settingsService.Settings.RecentPreviewFiles
+                     .Where(f => !string.IsNullOrWhiteSpace(f) && File.Exists(f))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .Take(5))
+        {
+            RecentFiles.Add(file);
+        }
+
+        var savedLastFile = settingsService.Settings.LastPreviewFilePath;
+        if (!string.IsNullOrWhiteSpace(savedLastFile) && File.Exists(savedLastFile))
+            SelectedRecentFile = savedLastFile;
+        else if (RecentFiles.Count > 0)
+            SelectedRecentFile = RecentFiles[0];
     }
 
     /// <summary>Called from code-behind when InputTextBox text changes (paste).</summary>
@@ -81,6 +101,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         if (!string.IsNullOrEmpty(LoadedFilePath))
             _navHistory.Push(LoadedFilePath);
         LoadFileCore(path);
+        RegisterRecentFile(path);
         GoBackCommand.NotifyCanExecuteChanged();
     }
 
@@ -92,6 +113,55 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _loadingFile = false;
         HasUnsavedChanges = false;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";
+    }
+
+    partial void OnSelectedRecentFileChanged(string? value)
+    {
+        OpenSelectedRecentFileCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanOpenSelectedRecentFile()
+    {
+        return !string.IsNullOrWhiteSpace(SelectedRecentFile) && File.Exists(SelectedRecentFile);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpenSelectedRecentFile))]
+    private void OpenSelectedRecentFile()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedRecentFile))
+            return;
+
+        if (!File.Exists(SelectedRecentFile))
+        {
+            StatusText = $"File not found: {SelectedRecentFile}";
+            RecentFiles.Remove(SelectedRecentFile);
+            return;
+        }
+
+        LoadFile(SelectedRecentFile);
+    }
+
+    public void PersistSessionState()
+    {
+        _settingsService.Settings.LastPreviewFilePath = LoadedFilePath ?? "";
+        _settingsService.Settings.RecentPreviewFiles = RecentFiles.Take(5).ToList();
+        _settingsService.Save();
+    }
+
+    private void RegisterRecentFile(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var existing = RecentFiles.FirstOrDefault(f =>
+            string.Equals(f, fullPath, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null)
+            RecentFiles.Remove(existing);
+
+        RecentFiles.Insert(0, fullPath);
+        while (RecentFiles.Count > 5)
+            RecentFiles.RemoveAt(RecentFiles.Count - 1);
+
+        SelectedRecentFile = fullPath;
     }
 
     /// <summary>Navigates to a URL — local .md files are loaded in the viewer, web URLs open in the browser.</summary>
@@ -136,6 +206,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         var prevPath = _navHistory.Pop();
         LoadFileCore(prevPath);
+        RegisterRecentFile(prevPath);
         GoBackCommand.NotifyCanExecuteChanged();
     }
 
@@ -143,6 +214,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         File.WriteAllText(path, MarkdownText);
         LoadedFilePath = path;
+        RegisterRecentFile(path);
         HasUnsavedChanges = false;
         StatusText = $"Saved {Path.GetFileName(path)}.";
     }

@@ -66,6 +66,10 @@ public class AppSettings
     public string AzureSpeechRegion { get; set; } = "";
     public string SpeechSourceLanguage { get; set; } = "English";
 
+    // Markdown preview session
+    public string LastPreviewFilePath { get; set; } = "";
+    public List<string> RecentPreviewFiles { get; set; } = [];
+
     public string DefaultLanguage { get; set; } = "Bulgarian";
 
     public int BatchSize { get; set; } = 30;
