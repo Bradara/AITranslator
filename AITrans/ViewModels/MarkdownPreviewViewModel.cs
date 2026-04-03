@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,6 +18,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private readonly SpeechService _speechService;
     private readonly SettingsService _settingsService;
     private CancellationTokenSource? _speechCts;
+    private readonly Stack<string> _navHistory = new();
+    private bool _loadingFile;
 
     // List of (charStart in PlainText, plain paragraph text)
     private List<(int charStart, string text)> _paragraphSpans = [];
@@ -40,6 +43,12 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [ObservableProperty]
     private string _readLanguage = "English";
 
+    [ObservableProperty]
+    private double _previewFontSize = 16;
+
+    [ObservableProperty]
+    private bool _hasUnsavedChanges;
+
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
     public MarkdownPreviewViewModel(SpeechService speechService, SettingsService settingsService)
@@ -57,20 +66,88 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     public void SetMarkdown(string markdown)
     {
         MarkdownText = markdown;
-        BuildPlainText();
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs.";
+    }
+
+    partial void OnMarkdownTextChanged(string value)
+    {
+        if (!_loadingFile)
+            HasUnsavedChanges = true;
+        BuildPlainText();
     }
 
     public void LoadFile(string path)
     {
-        var content = File.ReadAllText(path);
+        if (!string.IsNullOrEmpty(LoadedFilePath))
+            _navHistory.Push(LoadedFilePath);
+        LoadFileCore(path);
+        GoBackCommand.NotifyCanExecuteChanged();
+    }
+
+    private void LoadFileCore(string path)
+    {
+        _loadingFile = true;
+        MarkdownText = File.ReadAllText(path);  // triggers OnMarkdownTextChanged → BuildPlainText()
         LoadedFilePath = path;
-        MarkdownText = content;
-        BuildPlainText();
+        _loadingFile = false;
+        HasUnsavedChanges = false;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";
     }
 
-    /// <summary>Called from code-behind when the user moves the caret/selection in the plain text box.</summary>
+    /// <summary>Navigates to a URL — local .md files are loaded in the viewer, web URLs open in the browser.</summary>
+    public void NavigateTo(string url)
+    {
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch { /* ignore */ }
+            return;
+        }
+
+        string resolved;
+        if (Path.IsPathRooted(url))
+        {
+            resolved = url;
+        }
+        else if (!string.IsNullOrEmpty(LoadedFilePath))
+        {
+            var dir = Path.GetDirectoryName(LoadedFilePath)!;
+            resolved = Path.GetFullPath(Path.Combine(dir, url));
+        }
+        else
+        {
+            resolved = Path.GetFullPath(url);
+        }
+
+        if (!File.Exists(resolved))
+        {
+            StatusText = $"File not found: {resolved}";
+            return;
+        }
+
+        LoadFile(resolved);
+    }
+
+    private bool CanGoBack() => _navHistory.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(CanGoBack))]
+    private void GoBack()
+    {
+        var prevPath = _navHistory.Pop();
+        LoadFileCore(prevPath);
+        GoBackCommand.NotifyCanExecuteChanged();
+    }
+
+    public void SaveToFile(string path)
+    {
+        File.WriteAllText(path, MarkdownText);
+        LoadedFilePath = path;
+        HasUnsavedChanges = false;
+        StatusText = $"Saved {Path.GetFileName(path)}.";
+    }
+
+    /// <summary>Called from code-behind when the user moves the caret in the raw editor.</summary>
     public void SetSelectionStart(int charPos) => _selectionStart = charPos;
 
     // ──────────────────────────────────────────────────────
@@ -92,6 +169,18 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         _speechCts?.Cancel();
         _speechService.Stop();
+    }
+
+    [RelayCommand]
+    private void IncreaseFontSize()
+    {
+        if (PreviewFontSize < 40) PreviewFontSize += 2;
+    }
+
+    [RelayCommand]
+    private void DecreaseFontSize()
+    {
+        if (PreviewFontSize > 8) PreviewFontSize -= 2;
     }
 
     // ──────────────────────────────────────────────────────
@@ -144,14 +233,22 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         return text.Trim();
     }
 
-    private int GetParagraphIndexFromChar(int charPos)
+    private int GetParagraphIndexFromChar(int rawCharPos)
     {
-        for (int i = _paragraphSpans.Count - 1; i >= 0; i--)
+        if (_paragraphSpans.Count == 0) return 0;
+        var raw = MarkdownText.Replace("\r\n", "\n");
+        rawCharPos = Math.Clamp(rawCharPos, 0, raw.Length);
+        // Count double-newline paragraph boundaries before the cursor position
+        int count = 0;
+        int idx = 0;
+        while (idx < rawCharPos)
         {
-            if (charPos >= _paragraphSpans[i].charStart)
-                return i;
+            int next = raw.IndexOf("\n\n", idx, StringComparison.Ordinal);
+            if (next < 0 || next >= rawCharPos) break;
+            count++;
+            idx = next + 2;
         }
-        return 0;
+        return Math.Min(count, _paragraphSpans.Count - 1);
     }
 
     private async Task SpeakFromIndexAsync(int startIdx)
