@@ -5,16 +5,17 @@ namespace AITrans.ViewModels;
 public partial class MainViewModel : ViewModelBase
 {
     private readonly SettingsService _settingsService;
+    private readonly ThemeService _themeService;
 
     public SubtitlesViewModel SubtitlesTab { get; }
     public MarkdownViewModel MarkdownTab { get; }
     public MarkdownPreviewViewModel MarkdownPreviewTab { get; }
     public SettingsViewModel SettingsTab { get; }
 
-    public MainViewModel()
+    public MainViewModel(SettingsService settingsService, ThemeService themeService)
     {
-        _settingsService = new SettingsService();
-        _settingsService.Load();
+        _settingsService = settingsService;
+        _themeService = themeService;
         var translationService = new TranslationService();
         var speechService = new SpeechService();
         var cacheService = new CacheService();
@@ -22,7 +23,7 @@ public partial class MainViewModel : ViewModelBase
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService);
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService);
-        SettingsTab = new SettingsViewModel(_settingsService, translationService);
+        SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
     }
 
     public void SaveState()

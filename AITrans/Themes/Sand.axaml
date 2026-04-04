@@ -1,0 +1,107 @@
+<Styles xmlns="https://github.com/avaloniaui"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="ThemeBackgroundBrush" Color="#EFE3C4" />
+    <SolidColorBrush x:Key="ThemePanelBrush" Color="#E2D3AE" />
+    <SolidColorBrush x:Key="ThemeControlBackgroundBrush" Color="#F2E7CC" />
+    <SolidColorBrush x:Key="ThemeControlBorderBrush" Color="#BFA77A" />
+    <SolidColorBrush x:Key="ThemeTextBrush" Color="#3F3526" />
+    <SolidColorBrush x:Key="ThemeSubtleTextBrush" Color="#6A5C41" />
+    <SolidColorBrush x:Key="ThemeAccentBrush" Color="#C28E4A" />
+    <SolidColorBrush x:Key="ThemeAccentHoverBrush" Color="#D39D57" />
+    <SolidColorBrush x:Key="ThemeSelectionBrush" Color="#E1D3B2" />
+    <SolidColorBrush x:Key="ThemeCodeBackgroundBrush" Color="#E7D6B6" />
+    <SolidColorBrush x:Key="ThemeCodeBorderBrush" Color="#B7996D" />
+    <SolidColorBrush x:Key="ThemeButtonTextBrush" Color="#FFFFFF" />
+  </Styles.Resources>
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="UserControl">
+    <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
+  </Style>
+  <Style Selector="TabControl">
+    <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
+  </Style>
+  <Style Selector="TabItem">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="TabItem:selected">
+    <Setter Property="Background" Value="{DynamicResource ThemePanelBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}" />
+  </Style>
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource ThemeSelectionBrush}" />
+    <Setter Property="CaretBrush" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+  </Style>
+  <Style Selector="NumericUpDown">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+  </Style>
+  <Style Selector="ToggleSwitch">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="Button">
+    <Setter Property="Background" Value="{DynamicResource ThemeAccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeButtonTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}" />
+  </Style>
+  <Style Selector="Button:pointerover">
+    <Setter Property="Background" Value="{DynamicResource ThemeAccentHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentHoverBrush}" />
+  </Style>
+  <Style Selector="Separator">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBorderBrush}" />
+  </Style>
+  <Style Selector="GridSplitter">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBorderBrush}" />
+  </Style>
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="{DynamicResource ThemePanelBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+    <Setter Property="RowBackground" Value="{DynamicResource ThemePanelBrush}" />
+  </Style>
+  <Style Selector="DataGridRow">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="DataGridRow:selected">
+    <Setter Property="Background" Value="{DynamicResource ThemeSelectionBrush}" />
+  </Style>
+  <Style Selector="DataGridCell">
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Background" Value="{DynamicResource ThemeControlBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeControlBorderBrush}" />
+  </Style>
+  <Style Selector="md|MarkdownScrollViewer TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="md|MarkdownScrollViewer SelectableTextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+  </Style>
+  <Style Selector="md|MarkdownScrollViewer TextBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeCodeBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeCodeBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}" />
+    <Setter Property="FontFamily" Value="Consolas,Menlo,monospace" />
+  </Style>
+</Styles>

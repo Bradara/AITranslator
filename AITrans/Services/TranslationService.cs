@@ -114,6 +114,85 @@ public class TranslationService
         return [.. results];
     }
 
+    // Azure AI Translator language code mapping
+    private static string ToAzureTranslatorLang(string language) => language.ToLowerInvariant() switch
+    {
+        "bulgarian" => "bg",
+        "russian"   => "ru",
+        "english"   => "en",
+        "german"    => "de",
+        "french"    => "fr",
+        "spanish"   => "es",
+        _           => language.ToLowerInvariant()
+    };
+
+    /// <summary>
+    /// Translate a batch of texts using the Azure AI Translator REST API
+    /// (works with both the global cognitive services endpoint and
+    /// custom Azure AI Foundry / regional endpoints).
+    /// Up to 100 elements per request; texts are batched automatically.
+    /// </summary>
+    public async Task<List<string>> TranslateAzureTranslatorBatchAsync(
+        List<string> texts, string targetLanguage,
+        string apiKey, string endpoint, string region,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default)
+    {
+        const int MaxPerRequest = 50;
+
+        var langCode  = ToAzureTranslatorLang(targetLanguage);
+        var baseUri   = endpoint.TrimEnd('/');
+        // Support both global endpoint and custom Foundry endpoints:
+        // Global:  https://api.cognitive.microsofttranslator.com/translate?api-version=3.0
+        // Foundry: https://<name>.cognitiveservices.azure.com/translator/text/v3.0/translate?api-version=3.0
+        var translatePath = baseUri.Contains("cognitiveservices.azure.com")
+            ? $"{baseUri}/translator/text/v3.0/translate?api-version=3.0&to={langCode}"
+            : $"{baseUri}/translate?api-version=3.0&to={langCode}";
+
+        var results = new string[texts.Count];
+        int done = 0;
+
+        foreach (var chunk in texts.Select((t, i) => new { Text = t, Index = i }).Chunk(MaxPerRequest))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var body = JsonSerializer.Serialize(chunk.Select(x => new { Text = x.Text }).ToArray());
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, translatePath)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+            req.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
+            if (!string.IsNullOrWhiteSpace(region))
+                req.Headers.Add("Ocp-Apim-Subscription-Region", region);
+
+            using var resp = await HttpClient.SendAsync(req, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException($"Azure Translator error {resp.StatusCode}: {json}");
+
+            using var doc = JsonDocument.Parse(json);
+            var items = doc.RootElement.EnumerateArray().ToArray();
+
+            for (int j = 0; j < chunk.Length; j++)
+            {
+                var translated = items[j]
+                    .GetProperty("translations")[0]
+                    .GetProperty("text")
+                    .GetString() ?? "";
+
+                var originalIdx = chunk[j].Index;
+                results[originalIdx] = translated;
+                done++;
+                onEntryTranslated?.Invoke(originalIdx, translated);
+                progress?.Report(done * 100 / texts.Count);
+            }
+        }
+
+        return [.. results];
+    }
+
     /// <summary>
     /// Fetches available models from the GitHub Models API and GitHub Copilot Pro API
     /// (models.inference.ai.azure.com + api.githubcopilot.com), merging both lists.

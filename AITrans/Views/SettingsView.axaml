@@ -174,6 +174,35 @@
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
 
+                <Separator Margin="0,4" />
+
+        <!-- Azure AI Translator (Foundry / Cognitive Services) -->
+        <TextBlock Text="Azure AI Translator" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="API Key (Ocp-Apim-Subscription-Key)" />
+          <TextBox Text="{Binding AzureTranslatorApiKey}" PasswordChar="&#x2022;"
+                   Watermark="Azure Translator subscription key" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Endpoint" />
+          <TextBox Text="{Binding AzureTranslatorEndpoint}"
+                   Watermark="https://api.cognitive.microsofttranslator.com" />
+          <TextBlock Text="Default: global endpoint. For Foundry/custom endpoints use: https://&lt;name&gt;.cognitiveservices.azure.com"
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Region (optional)" />
+          <TextBox Text="{Binding AzureTranslatorRegion}" Watermark="e.g. westeurope (required for global endpoint)" />
+          <TextBlock Text="Required when using the global endpoint. Not needed for regional/Foundry endpoints."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding UseAzureTranslatorForMarkdown}"
+                        OnContent="Use Azure Translator for Markdown tab" OffContent="Use AI model for Markdown tab" />
+          <TextBlock Text="When enabled, Markdown tab uses Azure AI Translator instead of the AI provider."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
       </StackPanel>
     </ScrollViewer>
 
@@ -186,6 +215,14 @@
     <ScrollViewer Grid.Column="2">
       <StackPanel Margin="16,12" Spacing="14">
         <TextBlock Text="General Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
+
+        <!-- Theme -->
+        <StackPanel Spacing="5">
+          <TextBlock Text="Theme" FontWeight="SemiBold" />
+          <ComboBox ItemsSource="{Binding AvailableThemes}" SelectedItem="{Binding SelectedTheme}" Width="220" />
+        </StackPanel>
+
+        <Separator Margin="0,4" />
 
         <!-- Default Language -->
         <StackPanel Spacing="5">

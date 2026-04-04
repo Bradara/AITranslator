@@ -13,6 +13,7 @@ public partial class SettingsViewModel : ViewModelBase
 {
     private readonly SettingsService _settingsService;
     private readonly TranslationService _translationService;
+    private readonly ThemeService _themeService;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpenAi))]
@@ -79,6 +80,9 @@ public partial class SettingsViewModel : ViewModelBase
     private string _freeModelCount = "";
 
     [ObservableProperty]
+    private string _selectedTheme = "System";
+
+    [ObservableProperty]
     private string _defaultLanguage = "Bulgarian";
 
     [ObservableProperty]
@@ -105,6 +109,19 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _useDeepLForMarkdown = false;
+
+    // Azure AI Translator
+    [ObservableProperty]
+    private string _azureTranslatorApiKey = "";
+
+    [ObservableProperty]
+    private string _azureTranslatorEndpoint = "https://api.cognitive.microsofttranslator.com";
+
+    [ObservableProperty]
+    private string _azureTranslatorRegion = "";
+
+    [ObservableProperty]
+    private bool _useAzureTranslatorForMarkdown = false;
 
     // Azure Speech
     [ObservableProperty]
@@ -195,6 +212,12 @@ public partial class SettingsViewModel : ViewModelBase
         "gemini-1.5-flash",
         "gemini-1.5-pro",
     ];
+    public string[] AvailableThemes { get; } = [
+        "System", "Light", "Dark",
+        "Dracula", "Molokai",
+        "Solarized Dark", "Solarized Light",
+        "Papyrus", "Papyrus Contrast", "Sand"
+    ];
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
     [ObservableProperty]
@@ -226,10 +249,11 @@ public partial class SettingsViewModel : ViewModelBase
             GitHubCopilotModel = GitHubCopilotModels[Math.Max(0, idx - 1)];
     }
 
-    public SettingsViewModel(SettingsService settingsService, TranslationService translationService)
+    public SettingsViewModel(SettingsService settingsService, TranslationService translationService, ThemeService themeService)
     {
         _settingsService = settingsService;
         _translationService = translationService;
+        _themeService = themeService;
         var s = settingsService.Settings;
         SelectedProvider = s.Provider switch
         {
@@ -278,6 +302,11 @@ public partial class SettingsViewModel : ViewModelBase
         DeepLApiKey = s.DeepLApiKey;
         DeepLFreeApi = s.DeepLFreeApi;
         UseDeepLForMarkdown = s.UseDeepLForMarkdown;
+        SelectedTheme = string.IsNullOrWhiteSpace(s.ThemeName) ? "System" : s.ThemeName;
+        AzureTranslatorApiKey = s.AzureTranslatorApiKey;
+        AzureTranslatorEndpoint = s.AzureTranslatorEndpoint;
+        AzureTranslatorRegion = s.AzureTranslatorRegion;
+        UseAzureTranslatorForMarkdown = s.UseAzureTranslatorForMarkdown;
         AzureSpeechApiKey = s.AzureSpeechApiKey;
         AzureSpeechRegion = s.AzureSpeechRegion;
         SpeechSourceLanguage = s.SpeechSourceLanguage;
@@ -286,6 +315,11 @@ public partial class SettingsViewModel : ViewModelBase
         MarkdownBatchSize = s.MarkdownBatchSize;
         DelayBetweenRequestsMs = s.DelayBetweenRequestsMs;
         Temperature = s.Temperature;
+    }
+
+    partial void OnSelectedThemeChanged(string value)
+    {
+        _themeService.ApplyTheme(value);
     }
 
     [RelayCommand]
@@ -440,6 +474,11 @@ public partial class SettingsViewModel : ViewModelBase
         s.DeepLApiKey = DeepLApiKey;
         s.DeepLFreeApi = DeepLFreeApi;
         s.UseDeepLForMarkdown = UseDeepLForMarkdown;
+        s.AzureTranslatorApiKey = AzureTranslatorApiKey;
+        s.AzureTranslatorEndpoint = AzureTranslatorEndpoint;
+        s.AzureTranslatorRegion = AzureTranslatorRegion;
+        s.UseAzureTranslatorForMarkdown = UseAzureTranslatorForMarkdown;
+        s.ThemeName = SelectedTheme;
         s.AzureSpeechApiKey = AzureSpeechApiKey;
         s.AzureSpeechRegion = AzureSpeechRegion;
         s.SpeechSourceLanguage = SpeechSourceLanguage;

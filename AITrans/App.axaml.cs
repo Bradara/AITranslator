@@ -4,6 +4,7 @@ using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System.Linq;
 using Avalonia.Markup.Xaml;
+using AITrans.Services;
 using AITrans.ViewModels;
 using AITrans.Views;
 
@@ -23,7 +24,11 @@ public partial class App : Application
             // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
             // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
             DisableAvaloniaDataAnnotationValidation();
-            var mainViewModel = new MainViewModel();
+            var settingsService = new SettingsService();
+            settingsService.Load();
+            var themeService = new ThemeService();
+            themeService.ApplyTheme(settingsService.Settings.ThemeName);
+            var mainViewModel = new MainViewModel(settingsService, themeService);
             desktop.MainWindow = new MainWindow
             {
                 DataContext = mainViewModel
@@ -32,9 +37,13 @@ public partial class App : Application
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {
+            var settingsService = new SettingsService();
+            settingsService.Load();
+            var themeService = new ThemeService();
+            themeService.ApplyTheme(settingsService.Settings.ThemeName);
             singleViewPlatform.MainView = new MainView
             {
-                DataContext = new MainViewModel()
+                DataContext = new MainViewModel(settingsService, themeService)
             };
         }
 

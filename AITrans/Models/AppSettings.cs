@@ -16,6 +16,8 @@ public class AppSettings
 {
     public AiProvider Provider { get; set; } = AiProvider.OpenAI;
 
+    public string ThemeName { get; set; } = "System";
+
     public string OpenAiApiKey { get; set; } = "";
     public string GitHubCopilotApiKey { get; set; } = "";
     public string OpenRouterApiKey { get; set; } = "";
@@ -60,6 +62,12 @@ public class AppSettings
     public string DeepLApiKey { get; set; } = "";
     public bool DeepLFreeApi { get; set; } = true;
     public bool UseDeepLForMarkdown { get; set; } = false;
+
+    // Azure AI Translator (Foundry / Cognitive Services)
+    public string AzureTranslatorApiKey { get; set; } = "";
+    public string AzureTranslatorEndpoint { get; set; } = "https://api.cognitive.microsofttranslator.com";
+    public string AzureTranslatorRegion { get; set; } = "";
+    public bool UseAzureTranslatorForMarkdown { get; set; } = false;
 
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";

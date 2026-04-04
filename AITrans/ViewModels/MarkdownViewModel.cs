@@ -360,7 +360,27 @@ public partial class MarkdownViewModel : ViewModelBase
                 }
             }
 
-            if (settings.UseDeepLForMarkdown)
+            if (settings.UseAzureTranslatorForMarkdown)
+            {
+                if (string.IsNullOrWhiteSpace(settings.AzureTranslatorApiKey))
+                {
+                    StatusText = "Error: Azure Translator API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                var translations = await _translationService.TranslateAzureTranslatorBatchAsync(
+                    texts, SelectedLanguage,
+                    settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint, settings.AzureTranslatorRegion,
+                    progressReporter, OnEntryTranslated, _cts.Token);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = translations[i];
+                }
+            }
+            else if (settings.UseDeepLForMarkdown)
             {
                 if (string.IsNullOrWhiteSpace(settings.DeepLApiKey))
                 {
