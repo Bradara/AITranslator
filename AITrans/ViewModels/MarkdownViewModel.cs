@@ -56,6 +56,8 @@ public partial class MarkdownViewModel : ViewModelBase
     private int _scrollToRow = -1;
 
     private List<int> _selectedIndices = [];
+    private int _lastTranslatedIndex = -1;
+    private int _lastSelectedIndex = -1;
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
@@ -76,6 +78,8 @@ public partial class MarkdownViewModel : ViewModelBase
     public void SetSelectedIndices(List<int> indices)
     {
         _selectedIndices = indices;
+        if (_selectedIndices.Count > 0)
+            UpdateLastSelectedIndex(_selectedIndices.Min());
     }
 
     public void LoadFile(string path)
@@ -84,7 +88,7 @@ public partial class MarkdownViewModel : ViewModelBase
         InputText = content;
         LoadedFilePath = path;
         ParseParagraphs();
-        ScrollToRow = 0;
+        ScrollToRow = GetRestoreRowIndex();
         StatusText = $"Loaded {Paragraphs.Count} paragraphs from {Path.GetFileName(path)}";
     }
 
@@ -130,12 +134,16 @@ public partial class MarkdownViewModel : ViewModelBase
         var info = _cacheService.GetMarkdownCacheInfo(key);
         StatusText = $"Restored {paragraphs.Count} paragraphs from cache ({info?.TranslatedParagraphs}/{info?.TotalParagraphs} translated).";
         UpdateCacheInfo();
-        ScrollToRow = Paragraphs
-            .Select((p, i) => (p, i))
-            .FirstOrDefault(x => string.IsNullOrEmpty(x.p.TranslatedText)).i;
+        ScrollToRow = GetRestoreRowIndex();
     }
 
     public void RefreshCacheInfo() => UpdateCacheInfo();
+
+    public void RequestRestoreScroll()
+    {
+        if (Paragraphs.Count == 0) return;
+        ScrollToRow = GetRestoreRowIndex();
+    }
 
     private void UpdateCacheInfo()
     {
@@ -174,7 +182,7 @@ public partial class MarkdownViewModel : ViewModelBase
         }
 
         Paragraphs = entries;
-        ScrollToRow = 0;
+        ScrollToRow = GetRestoreRowIndex();
         StatusText = $"Parsed {parts.Count} paragraphs.";
         OnPropertyChanged(nameof(HasParagraphs));
     }
@@ -355,6 +363,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[batchIdx];
                     Paragraphs[realIdx].TranslatedText = text;
+                    SetLastTranslatedIndex(realIdx);
                     translated++;
                     StatusText = $"Translated {translated}/{total}...";
                 }
@@ -440,5 +449,66 @@ public partial class MarkdownViewModel : ViewModelBase
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    public void PersistSessionState()
+    {
+        if (Paragraphs.Count == 0) return;
+        var key = GetSessionKey();
+        var lastIdx = GetLastTranslatedIndexFromParagraphs();
+        if (!string.IsNullOrWhiteSpace(key) && lastIdx >= 0)
+            _settingsService.Settings.MarkdownLastTranslatedIndexByFile[key] = lastIdx;
+        if (!string.IsNullOrWhiteSpace(key) && _lastSelectedIndex >= 0)
+            _settingsService.Settings.MarkdownLastSelectedIndexByFile[key] = _lastSelectedIndex;
+        _settingsService.Save();
+    }
+
+    private string GetSessionKey() => LoadedFilePath ?? "unsaved";
+
+    private int GetLastTranslatedIndexFromParagraphs()
+    {
+        for (int i = Paragraphs.Count - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrEmpty(Paragraphs[i].TranslatedText))
+                return i;
+        }
+        return -1;
+    }
+
+    private void SetLastTranslatedIndex(int idx)
+    {
+        if (idx < 0) return;
+        _lastTranslatedIndex = Math.Max(_lastTranslatedIndex, idx);
+        var key = GetSessionKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.MarkdownLastTranslatedIndexByFile[key] = _lastTranslatedIndex;
+    }
+
+    private void UpdateLastSelectedIndex(int idx)
+    {
+        if (idx < 0) return;
+        _lastSelectedIndex = idx;
+        var key = GetSessionKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.MarkdownLastSelectedIndexByFile[key] = _lastSelectedIndex;
+    }
+
+    private int GetRestoreRowIndex()
+    {
+        if (Paragraphs.Count == 0) return -1;
+        var key = GetSessionKey();
+        if (_settingsService.Settings.MarkdownLastSelectedIndexByFile.TryGetValue(key, out var selectedIdx)
+            && selectedIdx >= 0)
+        {
+            _lastSelectedIndex = selectedIdx;
+            return Math.Clamp(selectedIdx, 0, Paragraphs.Count - 1);
+        }
+        if (!_settingsService.Settings.MarkdownLastTranslatedIndexByFile.TryGetValue(key, out var lastIdx))
+            lastIdx = GetLastTranslatedIndexFromParagraphs();
+        _lastTranslatedIndex = lastIdx;
+        if (lastIdx >= 0 && !string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.MarkdownLastTranslatedIndexByFile[key] = lastIdx;
+        if (lastIdx < 0) return 0;
+        return Math.Min(lastIdx + 1, Paragraphs.Count - 1);
     }
 }

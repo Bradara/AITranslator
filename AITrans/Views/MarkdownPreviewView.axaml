@@ -63,7 +63,7 @@
                TextWrapping="Wrap" />
 
     <!-- ── Main split layout ───────────────────────────── -->
-    <Grid ColumnDefinitions="*,5,*">
+    <Grid ColumnDefinitions="9* , 4, 11*">
 
       <!-- Left: raw markdown editor -->
       <DockPanel Grid.Column="0">
@@ -95,7 +95,7 @@
       <md:MarkdownScrollViewer Grid.Column="2"
                                x:Name="MarkViewer"
                                x:CompileBindings="False"
-                               Margin="8,0,0,0"
+                               Margin="8,0,8,0"
                                Markdown="{Binding MarkdownText}" />
 
     </Grid>

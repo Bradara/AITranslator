@@ -48,7 +48,27 @@ public partial class MarkdownView : UserControl
         if (!change.GetNewValue<bool>())
             SaveScrollOffset();
         else
+        {
+            if (DataContext is MarkdownViewModel vm)
+                vm.RequestRestoreScroll();
             Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+        }
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        if (DataContext is MarkdownViewModel vm)
+            vm.RequestRestoreScroll();
+        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        SaveScrollOffset();
+        if (DataContext is MarkdownViewModel vm)
+            vm.PersistSessionState();
+        base.OnDetachedFromVisualTree(e);
     }
 
     protected override void OnDataContextChanged(EventArgs e)

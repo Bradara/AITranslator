@@ -1,8 +1,13 @@
+using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AITrans.Models;
 using AITrans.ViewModels;
 
@@ -10,10 +15,105 @@ namespace AITrans.Views;
 
 public partial class SubtitlesView : UserControl
 {
+    private double _savedScrollY;
+    private int _pendingScrollRow = -1;
+    private SubtitlesViewModel? _subscribedVm;
+
     public SubtitlesView()
     {
         InitializeComponent();
         SubtitleGrid.SelectionChanged += OnGridSelectionChanged;
+    }
+
+    // ── Scroll position: save on tab deactivation, restore on activation ────
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property != IsVisibleProperty) return;
+
+        if (!change.GetNewValue<bool>())
+            SaveScrollOffset();
+        else
+        {
+            if (DataContext is SubtitlesViewModel vm)
+                vm.RequestRestoreScroll();
+            Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+        }
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        if (DataContext is SubtitlesViewModel vm)
+            vm.RequestRestoreScroll();
+        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        SaveScrollOffset();
+        if (DataContext is SubtitlesViewModel vm)
+            vm.PersistSessionState();
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (_subscribedVm != null)
+        {
+            _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+            _subscribedVm = null;
+        }
+        if (DataContext is SubtitlesViewModel vm)
+        {
+            _subscribedVm = vm;
+            vm.PropertyChanged += OnVmPropertyChanged;
+        }
+    }
+
+    private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SubtitlesViewModel.ScrollToRow)) return;
+        if (sender is not SubtitlesViewModel vm || vm.ScrollToRow < 0) return;
+
+        _pendingScrollRow = vm.ScrollToRow;
+        vm.ScrollToRow = -1; // consume the signal
+
+        if (IsVisible)
+            Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+    }
+
+    private ScrollViewer? GridScrollViewer()
+        => SubtitleGrid.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+
+    private void SaveScrollOffset()
+    {
+        var sv = GridScrollViewer();
+        if (sv != null) _savedScrollY = sv.Offset.Y;
+    }
+
+    private void RestoreOrScrollToPending()
+    {
+        if (_pendingScrollRow >= 0)
+        {
+            ScrollGridToRow(_pendingScrollRow);
+            _pendingScrollRow = -1;
+        }
+        else
+        {
+            var sv = GridScrollViewer();
+            if (sv != null) sv.Offset = new Vector(0, _savedScrollY);
+        }
+    }
+
+    private void ScrollGridToRow(int rowIndex)
+    {
+        if (DataContext is not SubtitlesViewModel vm || vm.Entries.Count == 0) return;
+        rowIndex = Math.Clamp(rowIndex, 0, vm.Entries.Count - 1);
+        SubtitleGrid.ScrollIntoView(vm.Entries[rowIndex], null);
     }
 
     private void OnGridSelectionChanged(object? sender, SelectionChangedEventArgs e)

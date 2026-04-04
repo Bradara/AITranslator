@@ -42,8 +42,14 @@ public partial class SubtitlesViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasCache;
 
+    /// <summary>Set by commands to signal the view to scroll to a specific row index. View resets to -1 after handling.</summary>
+    [ObservableProperty]
+    private int _scrollToRow = -1;
+
     // Indices selected in the DataGrid
     private List<int> _selectedIndices = [];
+    private int _lastTranslatedIndex = -1;
+    private int _lastSelectedIndex = -1;
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
@@ -63,6 +69,8 @@ public partial class SubtitlesViewModel : ViewModelBase
     public void SetSelectedIndices(List<int> indices)
     {
         _selectedIndices = indices;
+        if (_selectedIndices.Count > 0)
+            UpdateLastSelectedIndex(_selectedIndices.Min());
     }
 
     public void LoadFile(string path)
@@ -73,6 +81,7 @@ public partial class SubtitlesViewModel : ViewModelBase
         StatusText = $"Loaded {parsed.Count} entries from {System.IO.Path.GetFileName(path)}";
         OnPropertyChanged(nameof(HasEntries));
         UpdateCacheInfo(path);
+        ScrollToRow = GetRestoreRowIndex();
     }
 
     public void SaveFile(string path)
@@ -117,9 +126,16 @@ public partial class SubtitlesViewModel : ViewModelBase
         var info = _cacheService.GetSubtitleCacheInfo(key);
         StatusText = $"Restored {entries.Count} entries from cache ({info?.TranslatedEntries}/{info?.TotalEntries} translated).";
         UpdateCacheInfo(key);
+        ScrollToRow = GetRestoreRowIndex();
     }
 
     public void RefreshCacheInfo() => UpdateCacheInfo(LoadedFilePath);
+
+    public void RequestRestoreScroll()
+    {
+        if (Entries.Count == 0) return;
+        ScrollToRow = GetRestoreRowIndex();
+    }
 
     private void UpdateCacheInfo(string? filePath)
     {
@@ -214,6 +230,7 @@ public partial class SubtitlesViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[batchIdx];
                     Entries[realIdx].TranslatedText = text;
+                    SetLastTranslatedIndex(realIdx);
                     translated++;
                     StatusText = $"Translated {translated}/{total}...";
                 }
@@ -249,5 +266,66 @@ public partial class SubtitlesViewModel : ViewModelBase
             _cts?.Dispose();
             _cts = null;
         }
+    }
+
+    public void PersistSessionState()
+    {
+        if (Entries.Count == 0) return;
+        var key = GetSessionKey();
+        var lastIdx = GetLastTranslatedIndexFromEntries();
+        if (!string.IsNullOrWhiteSpace(key) && lastIdx >= 0)
+            _settingsService.Settings.SubtitlesLastTranslatedIndexByFile[key] = lastIdx;
+        if (!string.IsNullOrWhiteSpace(key) && _lastSelectedIndex >= 0)
+            _settingsService.Settings.SubtitlesLastSelectedIndexByFile[key] = _lastSelectedIndex;
+        _settingsService.Save();
+    }
+
+    private string GetSessionKey() => LoadedFilePath ?? "unsaved";
+
+    private int GetLastTranslatedIndexFromEntries()
+    {
+        for (int i = Entries.Count - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrEmpty(Entries[i].TranslatedText))
+                return i;
+        }
+        return -1;
+    }
+
+    private void SetLastTranslatedIndex(int idx)
+    {
+        if (idx < 0) return;
+        _lastTranslatedIndex = Math.Max(_lastTranslatedIndex, idx);
+        var key = GetSessionKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.SubtitlesLastTranslatedIndexByFile[key] = _lastTranslatedIndex;
+    }
+
+    private void UpdateLastSelectedIndex(int idx)
+    {
+        if (idx < 0) return;
+        _lastSelectedIndex = idx;
+        var key = GetSessionKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.SubtitlesLastSelectedIndexByFile[key] = _lastSelectedIndex;
+    }
+
+    private int GetRestoreRowIndex()
+    {
+        if (Entries.Count == 0) return -1;
+        var key = GetSessionKey();
+        if (_settingsService.Settings.SubtitlesLastSelectedIndexByFile.TryGetValue(key, out var selectedIdx)
+            && selectedIdx >= 0)
+        {
+            _lastSelectedIndex = selectedIdx;
+            return Math.Clamp(selectedIdx, 0, Entries.Count - 1);
+        }
+        if (!_settingsService.Settings.SubtitlesLastTranslatedIndexByFile.TryGetValue(key, out var lastIdx))
+            lastIdx = GetLastTranslatedIndexFromEntries();
+        _lastTranslatedIndex = lastIdx;
+        if (lastIdx >= 0 && !string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.SubtitlesLastTranslatedIndexByFile[key] = lastIdx;
+        if (lastIdx < 0) return 0;
+        return Math.Min(lastIdx + 1, Entries.Count - 1);
     }
 }

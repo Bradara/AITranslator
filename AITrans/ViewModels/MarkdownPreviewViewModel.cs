@@ -25,12 +25,16 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     // List of (charStart in PlainText, plain paragraph text)
     private List<(int charStart, string text)> _paragraphSpans = [];
     private int _selectionStart;
+    private double _lastScrollRatio;
 
     [ObservableProperty]
     private string _markdownText = "";
 
     [ObservableProperty]
     private string _plainText = "";
+
+    [ObservableProperty]
+    private int _scrollToParagraph = -1;
 
     [ObservableProperty]
     private bool _isSpeaking;
@@ -45,7 +49,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private string _readLanguage = "English";
 
     [ObservableProperty]
-    private double _previewFontSize = 16;
+    private double _previewFontSize = 18;
 
     [ObservableProperty]
     private bool _hasUnsavedChanges;
@@ -113,6 +117,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _loadingFile = false;
         HasUnsavedChanges = false;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";
+        RestoreLastReadParagraph();
     }
 
     partial void OnSelectedRecentFileChanged(string? value)
@@ -146,6 +151,41 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _settingsService.Settings.LastPreviewFilePath = LoadedFilePath ?? "";
         _settingsService.Settings.RecentPreviewFiles = RecentFiles.Take(5).ToList();
         _settingsService.Save();
+    }
+
+    public void RequestRestoreScroll()
+    {
+        RestoreLastReadParagraph();
+    }
+
+    public bool TryGetSavedScrollY(out double y)
+    {
+        y = 0;
+        var key = GetPreviewKey();
+        if (string.IsNullOrWhiteSpace(key)) return false;
+        if (_settingsService.Settings.PreviewLastScrollOffsetByFile.TryGetValue(key, out var saved) && saved > 0)
+        {
+            y = saved;
+            return true;
+        }
+        return false;
+    }
+
+    public void UpdatePreviewScrollY(double y)
+    {
+        if (double.IsNaN(y) || double.IsInfinity(y) || y < 0) return;
+        _lastScrollRatio = y; // reuse field for in-session dirty tracking
+        var key = GetPreviewKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.PreviewLastScrollOffsetByFile[key] = y;
+    }
+
+    public void UpdateLastReadParagraphFromScrollRatio(double ratio)
+    {
+        if (_paragraphSpans.Count == 0) return;
+        var clamped = Math.Clamp(ratio, 0, 1);
+        var idx = (int)Math.Round(clamped * (_paragraphSpans.Count - 1));
+        SaveLastReadParagraph(idx);
     }
 
     private void RegisterRecentFile(string path)
@@ -220,7 +260,11 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     }
 
     /// <summary>Called from code-behind when the user moves the caret in the raw editor.</summary>
-    public void SetSelectionStart(int charPos) => _selectionStart = charPos;
+    public void SetSelectionStart(int charPos)
+    {
+        _selectionStart = charPos;
+        SaveLastReadParagraph(GetParagraphIndexFromChar(charPos));
+    }
 
     // ──────────────────────────────────────────────────────
     //  Commands
@@ -325,6 +369,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     private async Task SpeakFromIndexAsync(int startIdx)
     {
+        SaveLastReadParagraph(startIdx);
         var settings = _settingsService.Settings;
         if (string.IsNullOrWhiteSpace(settings.AzureSpeechApiKey) || string.IsNullOrWhiteSpace(settings.AzureSpeechRegion))
         {
@@ -373,5 +418,42 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             _speechCts?.Dispose();
             _speechCts = null;
         }
+    }
+
+    public int GetRawCharIndexForParagraph(int paragraphIndex)
+    {
+        var raw = MarkdownText.Replace("\r\n", "\n");
+        if (string.IsNullOrEmpty(raw) || paragraphIndex <= 0) return 0;
+        int count = 0;
+        int idx = 0;
+        while (idx < raw.Length)
+        {
+            int next = raw.IndexOf("\n\n", idx, StringComparison.Ordinal);
+            if (next < 0) break;
+            count++;
+            idx = next + 2;
+            if (count >= paragraphIndex) return idx;
+        }
+        return raw.Length;
+    }
+
+    private string GetPreviewKey() => LoadedFilePath ?? "unsaved";
+
+    private void SaveLastReadParagraph(int paragraphIndex)
+    {
+        if (_paragraphSpans.Count == 0) return;
+        var key = GetPreviewKey();
+        if (string.IsNullOrWhiteSpace(key)) return;
+        var clamped = Math.Clamp(paragraphIndex, 0, _paragraphSpans.Count - 1);
+        _settingsService.Settings.PreviewLastReadParagraphByFile[key] = clamped;
+    }
+
+    private void RestoreLastReadParagraph()
+    {
+        if (_paragraphSpans.Count == 0) return;
+        var key = GetPreviewKey();
+        if (string.IsNullOrWhiteSpace(key)) return;
+        if (_settingsService.Settings.PreviewLastReadParagraphByFile.TryGetValue(key, out var idx))
+            ScrollToParagraph = Math.Clamp(idx, 0, _paragraphSpans.Count - 1);
     }
 }

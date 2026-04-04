@@ -28,6 +28,8 @@ public partial class MainViewModel : ViewModelBase
 
     public void SaveState()
     {
+        SubtitlesTab.PersistSessionState();
+        MarkdownTab.PersistSessionState();
         MarkdownPreviewTab.PersistSessionState();
     }
 }

@@ -77,6 +77,15 @@ public class AppSettings
     // Markdown preview session
     public string LastPreviewFilePath { get; set; } = "";
     public List<string> RecentPreviewFiles { get; set; } = [];
+    public Dictionary<string, int> PreviewLastReadParagraphByFile { get; set; } = [];
+    public Dictionary<string, double> PreviewLastScrollRatioByFile { get; set; } = [];  // kept for backwards compat, no longer used for restore
+    public Dictionary<string, double> PreviewLastScrollOffsetByFile { get; set; } = [];  // absolute pixel offset
+
+    // Translation progress by file/session
+    public Dictionary<string, int> MarkdownLastTranslatedIndexByFile { get; set; } = [];
+    public Dictionary<string, int> SubtitlesLastTranslatedIndexByFile { get; set; } = [];
+    public Dictionary<string, int> MarkdownLastSelectedIndexByFile { get; set; } = [];
+    public Dictionary<string, int> SubtitlesLastSelectedIndexByFile { get; set; } = [];
 
     public string DefaultLanguage { get; set; } = "Bulgarian";
 
