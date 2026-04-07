@@ -122,6 +122,14 @@ public partial class MarkdownPreviewView : UserControl
         {
             var dir = Path.GetDirectoryName(vm.LoadedFilePath);
             if (dir != null) MarkViewer.AssetPathRoot = dir;
+
+            // Cancel any deferred scroll from the previous file and block
+            // scroll-save events that fire while new content renders, to prevent
+            // the old position from being saved under the new file's key.
+            _pendingScrollY = -1;
+            _restoringScroll = true;
+            if (_previewScroll != null)
+                _previewScroll.LayoutUpdated -= OnPreviewScrollLayoutUpdated;
         }
 
         // Rebuild font-size override styles when the user clicks A+/A-
@@ -141,12 +149,17 @@ public partial class MarkdownPreviewView : UserControl
     {
         if (DataContext is MarkdownPreviewViewModel vm && vm.TryGetSavedScrollY(out var absY) && absY > 0)
         {
+            // _restoringScroll stays true; ApplyScrollRestore clears it when done.
             AttemptDeferredScrollRestore(absY);
             return;
         }
-        if (_pendingScrollParagraph < 0 || DataContext is not MarkdownPreviewViewModel pendingVm) return;
-        ScrollEditorToParagraph(pendingVm, _pendingScrollParagraph);
-        _pendingScrollParagraph = -1;
+        if (_pendingScrollParagraph >= 0 && DataContext is MarkdownPreviewViewModel pendingVm)
+        {
+            ScrollEditorToParagraph(pendingVm, _pendingScrollParagraph);
+            _pendingScrollParagraph = -1;
+        }
+        // Unblock position saves after rendering and scroll events settle.
+        Dispatcher.UIThread.Post(() => _restoringScroll = false, DispatcherPriority.Background);
     }
 
     // Restores the preview (and raw) to the absolute pixel offset `absY`.
@@ -431,5 +444,19 @@ public partial class MarkdownPreviewView : UserControl
 
         if (files.Count > 0 && DataContext is MarkdownPreviewViewModel vm)
             vm.LoadFile(files[0].Path.LocalPath);
+    }
+
+    private async void OnHistoryClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var window = new FileHistoryWindow(vm.CacheService);
+        if (TopLevel.GetTopLevel(this) is Window parent)
+            await window.ShowDialog(parent);
+        else
+            window.Show();
+        if (window.SelectedFilePath != null && File.Exists(window.SelectedFilePath))
+            vm.LoadFile(window.SelectedFilePath);
+        else if (window.SelectedFilePath != null)
+            vm.StatusText = $"Файлът не е намерен: {window.SelectedFilePath}";
     }
 }

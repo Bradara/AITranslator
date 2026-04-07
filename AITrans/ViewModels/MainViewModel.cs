@@ -22,7 +22,7 @@ public partial class MainViewModel : ViewModelBase
 
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService);
-        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService);
+        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
     }
 

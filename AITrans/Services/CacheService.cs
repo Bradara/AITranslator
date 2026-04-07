@@ -27,6 +27,13 @@ public class MarkdownCacheInfo
     public int TranslatedParagraphs { get; init; }
 }
 
+public class PreviewFileHistoryInfo
+{
+    public string FilePath { get; init; } = "";
+    public string FileName => Path.GetFileName(FilePath);
+    public DateTime LastOpenedAt { get; init; }
+}
+
 public class CacheService
 {
     private readonly string _dbPath;
@@ -80,6 +87,10 @@ public class CacheService
                 original_text TEXT NOT NULL,
                 translated_text TEXT NOT NULL,
                 PRIMARY KEY (session_key, paragraph_index)
+            );
+            CREATE TABLE IF NOT EXISTS preview_file_history (
+                file_path TEXT NOT NULL PRIMARY KEY,
+                last_opened_at TEXT NOT NULL
             );
             """;
         cmd.ExecuteNonQuery();
@@ -367,6 +378,40 @@ public class CacheService
     {
         var all = GetAllMarkdownSessions();
         return all.Count > 0 ? all[0] : null;
+    }
+
+    // ─── Preview File History ─────────────────────────────────────────────────
+
+    public void UpsertPreviewFileHistory(string filePath)
+    {
+        using var conn = Open();
+        Execute(conn,
+            "INSERT OR REPLACE INTO preview_file_history (file_path, last_opened_at) VALUES (@fp, @at)",
+            ("@fp", filePath), ("@at", DateTime.UtcNow.ToString("o")));
+    }
+
+    public List<PreviewFileHistoryInfo> GetAllPreviewFileHistory()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT file_path, last_opened_at FROM preview_file_history ORDER BY last_opened_at DESC";
+        using var r = cmd.ExecuteReader();
+        var list = new List<PreviewFileHistoryInfo>();
+        while (r.Read())
+        {
+            list.Add(new PreviewFileHistoryInfo
+            {
+                FilePath = r.GetString(0),
+                LastOpenedAt = DateTime.Parse(r.GetString(1))
+            });
+        }
+        return list;
+    }
+
+    public void DeletePreviewFileHistory(string filePath)
+    {
+        using var conn = Open();
+        Execute(conn, "DELETE FROM preview_file_history WHERE file_path = @fp", ("@fp", filePath));
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────

@@ -13,13 +13,8 @@
     <!-- ── Toolbar ─────────────────────────────────────── -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
       <Button x:Name="OpenFileBtn" Content="📂 Open MD" Click="OnOpenFileClick" />
-      <ComboBox Width="320"
-                ItemsSource="{Binding RecentFiles}"
-                SelectedItem="{Binding SelectedRecentFile}"
-                ToolTip.Tip="Последни 5 отворени файла" />
-      <Button Content="Open Recent"
-              Command="{Binding OpenSelectedRecentFileCommand}"
-              ToolTip.Tip="Отвори избрания файл от списъка с последни файлове" />
+      <Button x:Name="HistoryBtn" Content="📋 История" Click="OnHistoryClick"
+              ToolTip.Tip="История на отворени файлове" />
       <Button Content="← Back"
               Command="{Binding GoBackCommand}"
               ToolTip.Tip="Navigate back to the previous document" />
