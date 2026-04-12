@@ -202,5 +202,35 @@ public partial class MarkdownView : UserControl
         if (file != null)
             vm.SaveTranslation(file.Path.LocalPath);
     }
+
+    private async void OnSaveOriginalClick(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+
+        if (DataContext is not MarkdownViewModel vm) return;
+
+        // If a file is already loaded, save directly without prompting
+        if (vm.LoadedFilePath is not null)
+        {
+            vm.SaveOriginal(vm.LoadedFilePath);
+            return;
+        }
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save Original Text",
+            DefaultExtension = "md",
+            SuggestedFileName = "original.md",
+            FileTypeChoices = [
+                new FilePickerFileType("Markdown") { Patterns = ["*.md"] },
+                new FilePickerFileType("Text") { Patterns = ["*.txt"] },
+                new FilePickerFileType("All Files") { Patterns = ["*"] }
+            ]
+        });
+
+        if (file != null)
+            vm.SaveOriginal(file.Path.LocalPath);
+    }
 }
 

@@ -23,7 +23,6 @@
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <Button Content="🗄 Cache" Command="{Binding SaveCacheCommand}" ToolTip.Tip="Save current translation session to database" />
       <Button Content="♫ Restore" x:Name="RestoreBtn" Click="OnRestoreCacheClick" IsEnabled="{Binding HasCache}" ToolTip.Tip="Izberi kesh sesiq za vръщане" />
-      <Button x:Name="SaveFileBtn" Content="💾 Save" Click="OnSaveFileClick" />
       <Button x:Name="CopyResultBtn" Content="📋 Copy" Click="OnCopyResultClick" />
       <ProgressBar IsVisible="{Binding IsTranslating}" Value="{Binding Progress}" Maximum="100" Width="200" MinHeight="20" />
     </StackPanel>
@@ -46,6 +45,15 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,5">
           <TextBlock Text="Input (paste markdown text)" FontWeight="Bold" VerticalAlignment="Center" />
           <Button Content="📝 Parse Paragraphs" Command="{Binding ParseParagraphsCommand}" Padding="8,4" />
+          <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+          <TextBlock Text="Web:" FontWeight="Bold" VerticalAlignment="Center" />
+          <TextBox Text="{Binding WebUrl}" Watermark="Enter web address..." Width="300" Height="32" VerticalAlignment="Center" />
+          <Button Content="🌐 Parse Web" Command="{Binding ParseFromWebCommand}" Padding="8,4" />
+          <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+          <Button x:Name="SaveOriginalBtn" Content="💾 Save Original" Click="OnSaveOriginalClick"
+                  Padding="8,4" ToolTip.Tip="Save the original (input) text to a file" />
+          <Button x:Name="SaveTranslationBtn" Content="💾 Save Translation" Click="OnSaveFileClick"
+                  Padding="8,4" ToolTip.Tip="Save the combined translation to a file" />
         </StackPanel>
         <TextBox Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap"
                  Watermark="Paste markdown text here, then click Parse Paragraphs..." Height="120" />
@@ -65,17 +73,21 @@
                 IsReadOnly="False">
         <DataGrid.Columns>
           <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="40" IsReadOnly="True" />
-          <DataGridTemplateColumn Header="Original" Width="*" IsReadOnly="True">
+          <DataGridTemplateColumn Header="Original" Width="*" MinWidth="120" IsReadOnly="True">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
-                <TextBlock Text="{Binding OriginalText}" TextWrapping="Wrap" Padding="4" />
+                <TextBox Text="{Binding DisplayOriginalText}" TextWrapping="Wrap" Padding="4"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         IsHitTestVisible="False" />
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>
-          <DataGridTemplateColumn Header="Translation" Width="*">
+          <DataGridTemplateColumn Header="Translation" Width="*" MinWidth="120">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
-                <TextBlock Text="{Binding TranslatedText}" TextWrapping="Wrap" Padding="4" />
+                <TextBox Text="{Binding DisplayTranslatedText}" TextWrapping="Wrap" Padding="4"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         IsHitTestVisible="False" />
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
             <DataGridTemplateColumn.CellEditingTemplate>

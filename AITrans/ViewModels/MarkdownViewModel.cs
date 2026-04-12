@@ -3,10 +3,15 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HtmlAgilityPack;
+using ReverseMarkdown;
 using AITrans.Models;
 using AITrans.Services;
 
@@ -23,6 +28,9 @@ public partial class MarkdownViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _inputText = "";
+
+    [ObservableProperty]
+    private string _webUrl = "";
 
     [ObservableProperty]
     private ObservableCollection<MarkdownEntry> _paragraphs = [];
@@ -100,6 +108,17 @@ public partial class MarkdownViewModel : ViewModelBase
         UpdateCacheInfo();
     }
 
+    public void SaveOriginal(string path)
+    {
+        var text = InputText;
+        if (string.IsNullOrWhiteSpace(text) && Paragraphs.Count > 0)
+            text = string.Join("\n\n", Paragraphs.Select(p => p.OriginalText));
+
+        File.WriteAllText(path, text, System.Text.Encoding.UTF8);
+        LoadedFilePath = path;
+        StatusText = $"Original saved to {Path.GetFileName(path)}";
+    }
+
     [RelayCommand]
     private void SaveCache()
     {
@@ -167,12 +186,25 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(InputText)) return;
 
-        // Split on double newlines (blank lines) to get paragraphs
+        // Split on double newlines (blank lines) to get paragraphs.
+        // Also filter short/decoration lines *within* each paragraph to avoid Avalonia
+        // TextWrapping crash: "Cannot split: requested length N consumes entire run"
+        static string CleanParagraph(string para)
+        {
+            var lines = para.Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => l.Length >= 3)
+                .Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"^[-*_|=\\s]+$"))
+                .ToList();
+            return string.Join("\n", lines).Trim();
+        }
+
         var parts = InputText
             .Replace("\r\n", "\n")
             .Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => p.Trim())
-            .Where(p => p.Length > 0)
+            .Select(p => CleanParagraph(p))
+            .Where(p => p.Length >= 3)
+            .Where(p => !System.Text.RegularExpressions.Regex.IsMatch(p, @"^[-*_|=\\s]+$"))
             .ToList();
 
         var entries = new ObservableCollection<MarkdownEntry>();
@@ -185,6 +217,385 @@ public partial class MarkdownViewModel : ViewModelBase
         ScrollToRow = GetRestoreRowIndex();
         StatusText = $"Parsed {parts.Count} paragraphs.";
         OnPropertyChanged(nameof(HasParagraphs));
+    }
+
+    [RelayCommand]
+    private async Task ParseFromWebAsync()
+    {
+        if (string.IsNullOrWhiteSpace(WebUrl))
+        {
+            StatusText = "Please enter a web address.";
+            return;
+        }
+
+        try
+        {
+            StatusText = "Fetching web page...";
+            
+            // Validate and normalize URL
+            var url = WebUrl.Trim();
+            if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+                url = "https://" + url;
+
+            var handler = new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = true,
+                UseCookies = true,
+                CookieContainer = new System.Net.CookieContainer()
+            };
+
+            using (var client = new HttpClient(handler))
+            {
+                client.DefaultRequestHeaders.Clear();
+                client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+                client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8");
+                client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9,bg;q=0.8,ru;q=0.7");
+                client.DefaultRequestHeaders.Add("Cache-Control", "no-cache");
+                client.DefaultRequestHeaders.Add("Pragma", "no-cache");
+                client.DefaultRequestHeaders.Add("Sec-Fetch-Dest", "document");
+                client.DefaultRequestHeaders.Add("Sec-Fetch-Mode", "navigate");
+                client.DefaultRequestHeaders.Add("Sec-Fetch-Site", "none");
+                client.DefaultRequestHeaders.Add("DNT", "1");
+                client.Timeout = TimeSpan.FromSeconds(30);
+                
+                HttpResponseMessage response;
+                try
+                {
+                    response = await client.GetAsync(url);
+                }
+                catch (HttpRequestException ex) when (ex.Message.Contains("403"))
+                {
+                    StatusText = "Error 403: Website blocked the request. Try a different site.";
+                    return;
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                {
+                    StatusText = "Error 403: Website rejected the request (anti-bot protection). Try another site.";
+                    return;
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    StatusText = "Error 404: Page not found. Check the URL.";
+                    return;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    StatusText = $"Error {(int)response.StatusCode}: {response.ReasonPhrase}. Could not fetch the page.";
+                    return;
+                }
+
+                // Read raw bytes and detect encoding from HTML meta tags
+                var rawBytes = await response.Content.ReadAsByteArrayAsync();
+                var htmlContent = DetectEncodingAndDecode(rawBytes);
+
+                if (string.IsNullOrWhiteSpace(htmlContent))
+                {
+                    StatusText = "Error: Website returned empty content.";
+                    return;
+                }
+
+                StatusText = "Extracting article content...";
+                
+                var doc = new HtmlDocument();
+                doc.LoadHtml(htmlContent);
+
+                // All cleanup happens inside ExtractArticleAsMarkdown
+                var markdown = ExtractArticleAsMarkdown(doc);
+
+                if (string.IsNullOrWhiteSpace(markdown) || markdown.Length < 50)
+                {
+                    StatusText = "Warning: Very little content extracted. The page might not be readable.";
+                    if (string.IsNullOrWhiteSpace(markdown)) return;
+                }
+
+                InputText = markdown;
+                ParseParagraphs();
+
+                StatusText = $"Successfully parsed web page ({Paragraphs.Count} paragraphs).";
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            StatusText = "Error: Request timed out (page took too long to load).";
+        }
+        catch (HttpRequestException ex)
+        {
+            StatusText = $"Error fetching web page: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error: {ex.Message}";
+        }
+    }
+
+    /// <summary>Detect charset from HTML meta tags and decode raw bytes accordingly.</summary>
+    private static string DetectEncodingAndDecode(byte[] rawBytes)
+    {
+        // First pass: do a rough ASCII/UTF-8 decode to find <meta charset="..."> or <meta http-equiv="Content-Type" content="...charset=...">
+        var probe = Encoding.ASCII.GetString(rawBytes, 0, Math.Min(rawBytes.Length, 4096));
+        
+        Encoding encoding = Encoding.UTF8; // default
+
+        // Look for <meta charset="windows-1251"> etc.
+        var charsetMatch = Regex.Match(probe, @"<meta[^>]+charset\s*=\s*[""']?([^""'\s;>]+)", RegexOptions.IgnoreCase);
+        if (charsetMatch.Success)
+        {
+            try { encoding = Encoding.GetEncoding(charsetMatch.Groups[1].Value); } catch { }
+        }
+        else
+        {
+            // Look for <meta http-equiv="Content-Type" content="text/html; charset=windows-1251">
+            var contentTypeMatch = Regex.Match(probe, @"content=[""'][^""']*charset=([^""'\s;]+)", RegexOptions.IgnoreCase);
+            if (contentTypeMatch.Success)
+            {
+                try { encoding = Encoding.GetEncoding(contentTypeMatch.Groups[1].Value); } catch { }
+            }
+        }
+
+        return encoding.GetString(rawBytes);
+    }
+
+    private static readonly Converter MdConverter = new(new Config
+    {
+        UnknownTags = Config.UnknownTagsOption.Bypass,
+        GithubFlavored = true,
+        SmartHrefHandling = true,
+        RemoveComments = true
+    });
+
+    /// <summary>Extract article content from parsed HTML as markdown.
+    /// Uses ReverseMarkdown for structured HTML; falls back to text walker for br-only pages.</summary>
+    private static string ExtractArticleAsMarkdown(HtmlDocument doc)
+    {
+        var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
+
+        // Phase 1: Remove tags that can never contain readable text.
+        RemoveTagsGlobally(body, SkipTags);
+
+        // Phase 2: Try semantic containers BEFORE removing structural chrome.
+        // This preserves <header>/<footer> inside <article> (e.g. article title, author info).
+        var container = FindContentContainer(body);
+
+        if (container == null)
+        {
+            // No semantic container found — remove structural chrome + noise divs,
+            // then use text-density heuristic to find the best content block.
+            RemoveTagsGlobally(body, ChromeTags);
+            RemoveNoiseDivs(body);
+            container = FindDensestTextBlock(body) ?? body;
+        }
+
+        // Phase 3: Detect structured vs. unstructured and convert.
+        var structuredNodes = container.SelectNodes(
+            ".//p | .//h1 | .//h2 | .//h3 | .//h4 | .//h5 | .//h6 | .//ul | .//ol | .//blockquote | .//table");
+        bool isStructured = structuredNodes != null && structuredNodes.Count >= 2;
+
+        string markdown = isStructured
+            ? MdConverter.Convert(container.OuterHtml)
+            : ExtractUnstructuredText(container);
+
+        return CleanMarkdown(markdown);
+    }
+
+    /// <summary>Try semantic HTML selectors to find the article container.
+    /// Returns null if nothing matches or matched node has too little text.</summary>
+    private static HtmlNode? FindContentContainer(HtmlNode body)
+    {
+        string[] selectors =
+        {
+            ".//article",
+            ".//main",
+            ".//*[@role='main']",
+            ".//div[@itemprop='articleBody']",
+            ".//div[contains(@class,'article-body')]",
+            ".//div[contains(@class,'article-content')]",
+            ".//div[contains(@class,'article-text')]",
+            ".//div[contains(@class,'post-content')]",
+            ".//div[contains(@class,'post-body')]",
+            ".//div[contains(@class,'entry-content')]",
+            ".//div[contains(@class,'entry-body')]",
+            ".//div[contains(@class,'story-body')]",
+            ".//div[contains(@class,'page-content')]",
+        };
+
+        foreach (var sel in selectors)
+        {
+            var node = body.SelectSingleNode(sel);
+            if (node != null && (node.InnerText?.Trim().Length ?? 0) >= 50)
+                return node;
+        }
+
+        return null;
+    }
+
+    /// <summary>Remove divs/sections that are common noise based on class/id patterns.</summary>
+    private static void RemoveNoiseDivs(HtmlNode root)
+    {
+        string[] noisePatterns =
+        {
+            "cookie", "consent", "gdpr", "popup", "modal", "overlay",
+            "sidebar", "widget", "comment", "menu", "toolbar",
+            "social", "share", "related", "recommend", "promo",
+            "advert", "sponsor", "newsletter", "signup", "subscribe",
+            "banner", "notification", "alert"
+        };
+
+        var toRemove = root.Descendants()
+            .Where(n => n.NodeType == HtmlNodeType.Element &&
+                        n.Name is "div" or "section" or "aside" or "ul")
+            .Where(n =>
+            {
+                var cls = n.GetAttributeValue("class", "").ToLowerInvariant();
+                var id = n.GetAttributeValue("id", "").ToLowerInvariant();
+                return noisePatterns.Any(p => cls.Contains(p) || id.Contains(p));
+            })
+            .ToList();
+
+        foreach (var n in toRemove)
+            n.Remove();
+    }
+
+    /// <summary>Find the container with the highest text density.
+    /// Uses textLen²/htmlLen scoring — rewards deep containers with lots of text and little markup.</summary>
+    private static HtmlNode? FindDensestTextBlock(HtmlNode root)
+    {
+        HtmlNode? best = null;
+        double bestScore = 0;
+
+        foreach (var node in root.Descendants().Where(n =>
+            n.NodeType == HtmlNodeType.Element &&
+            n.Name is "div" or "section" or "td"))
+        {
+            var textLen = (node.InnerText?.Trim() ?? "").Length;
+            if (textLen < 200) continue;
+
+            var htmlLen = node.InnerHtml.Length;
+            if (htmlLen == 0) continue;
+
+            // textLen²/htmlLen prefers deep containers with content over shallow wrappers.
+            var score = (double)textLen * textLen / htmlLen;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = node;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Remove all nodes matching the given tag set from the subtree.</summary>
+    private static void RemoveTagsGlobally(HtmlNode root, HashSet<string> tags)
+    {
+        var toRemove = root.Descendants()
+            .Where(n => n.NodeType == HtmlNodeType.Element && tags.Contains(n.Name))
+            .ToList();
+        foreach (var n in toRemove)
+            n.Remove();
+    }
+
+    /// <summary>Extract plain text from unstructured content (br-separated), walking text nodes.</summary>
+    private static string ExtractUnstructuredText(HtmlNode container)
+    {
+        var html = container.InnerHtml;
+        html = Regex.Replace(html, @"<br\s*/?\s*>", "\n", RegexOptions.IgnoreCase);
+
+        var tempDoc = new HtmlDocument();
+        tempDoc.LoadHtml($"<div>{html}</div>");
+        var root = tempDoc.DocumentNode.SelectSingleNode("//div") ?? tempDoc.DocumentNode;
+
+        var sb = new StringBuilder();
+        ExtractTextRecursive(root, sb);
+
+        var paragraphs = Regex.Split(sb.ToString(), @"\n\s*\n")
+            .Select(p => p.Trim())
+            .Where(p => p.Length >= 3)
+            .Where(p => !Regex.IsMatch(p, @"^[-*_|=\s]+$"))
+            .ToList();
+
+        return string.Join("\n\n", paragraphs);
+    }
+
+    // Tags that can never contain readable article text
+    private static readonly HashSet<string> SkipTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "script", "style", "noscript", "svg", "iframe", "button", "input",
+        "select", "textarea", "img", "video", "audio", "canvas", "map",
+        "object", "embed", "picture", "source", "track"
+    };
+
+    // Semantic HTML5 chrome tags — always site wrapping, never article body
+    private static readonly HashSet<string> ChromeTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "nav", "header", "footer", "aside", "form"
+    };
+
+    /// <summary>Recursively walks DOM nodes and collects visible text.
+    /// Called only on unstructured (br-separated) content after SkipTags are already removed.</summary>
+    private static void ExtractTextRecursive(HtmlNode node, StringBuilder sb)
+    {
+        if (node.NodeType == HtmlNodeType.Element)
+        {
+            var tag = node.Name.ToLowerInvariant();
+
+            // SkipTags are already removed globally before this is called, but guard here too
+            if (SkipTags.Contains(tag))
+                return;
+
+            // Block-level elements
+            var isBlock = tag is "div" or "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6"
+                or "li" or "tr" or "blockquote" or "section" or "article" or "main"
+                or "pre" or "table" or "dl" or "dt" or "dd" or "figure" or "details"
+                or "summary" or "address" or "fieldset" or "hr";
+
+            if (tag is "h1" or "h2" or "h3" or "h4" or "h5" or "h6")
+            {
+                var level = tag[1] - '0';
+                sb.AppendLine().AppendLine();
+                sb.Append(new string('#', level) + " ");
+            }
+            else if (tag == "li")
+            {
+                sb.AppendLine();
+                sb.Append("- ");
+            }
+            else if (isBlock)
+            {
+                sb.AppendLine().AppendLine();
+            }
+
+            foreach (var child in node.ChildNodes)
+                ExtractTextRecursive(child, sb);
+
+            if (isBlock)
+                sb.AppendLine().AppendLine();
+        }
+        else if (node.NodeType == HtmlNodeType.Text)
+        {
+            var text = HtmlEntity.DeEntitize(node.InnerText);
+            if (!string.IsNullOrWhiteSpace(text))
+                sb.Append(text);
+        }
+        else
+        {
+            foreach (var child in node.ChildNodes)
+                ExtractTextRecursive(child, sb);
+        }
+    }
+
+    private static string CleanMarkdown(string markdown)
+    {
+        // Remove excessive blank lines
+        markdown = Regex.Replace(markdown, @"\n\n\n+", "\n\n");
+        // Remove lines that are only whitespace/decoration
+        markdown = Regex.Replace(markdown, @"^\s*[-*_]{1,2}\s*$", "", RegexOptions.Multiline);
+        // Clean up excessive blank lines again after removal
+        markdown = Regex.Replace(markdown, @"\n\n\n+", "\n\n");
+        return markdown.Trim();
     }
 
     [RelayCommand]

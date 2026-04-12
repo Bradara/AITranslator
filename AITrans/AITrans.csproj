@@ -24,5 +24,7 @@
     <PackageReference Include="Microsoft.CognitiveServices.Speech" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Markdown.Avalonia" />
+    <PackageReference Include="HtmlAgilityPack" />
+    <PackageReference Include="ReverseMarkdown" />
   </ItemGroup>
 </Project>
