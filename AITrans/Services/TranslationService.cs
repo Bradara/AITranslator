@@ -136,9 +136,9 @@ public class TranslationService
         List<string> texts, string targetLanguage,
         string apiKey, string endpoint, string region,
         IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
     {
-        const int MaxPerRequest = 50;
+        const int MaxPerRequest = 10;
 
         var langCode  = ToAzureTranslatorLang(targetLanguage);
         var baseUri   = endpoint.TrimEnd('/');
@@ -151,10 +151,15 @@ public class TranslationService
 
         var results = new string[texts.Count];
         int done = 0;
+        int chunkIndex = 0;
 
         foreach (var chunk in texts.Select((t, i) => new { Text = t, Index = i }).Chunk(MaxPerRequest))
         {
             ct.ThrowIfCancellationRequested();
+
+            if (chunkIndex > 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
+            chunkIndex++;
 
             var body = JsonSerializer.Serialize(chunk.Select(x => new { Text = x.Text }).ToArray());
 

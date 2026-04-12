@@ -791,7 +791,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 var translations = await _translationService.TranslateAzureTranslatorBatchAsync(
                     texts, SelectedLanguage,
                     settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint, settings.AzureTranslatorRegion,
-                    progressReporter, OnEntryTranslated, _cts.Token);
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 
                 for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
                 {
