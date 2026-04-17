@@ -19,10 +19,11 @@ public partial class MainViewModel : ViewModelBase
         var translationService = new TranslationService();
         var speechService = new SpeechService();
         var cacheService = new CacheService();
+        var epubExportService = new EpubExportService();
 
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService);
-        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService);
+        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
     }
 

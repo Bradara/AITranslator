@@ -426,6 +426,37 @@ public partial class MarkdownPreviewView : UserControl
         if (file != null)
             vm.SaveToFile(file.Path.LocalPath);
     }
+
+    private async void OnExportEpubClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+
+        if (string.IsNullOrWhiteSpace(vm.MarkdownText))
+        {
+            vm.StatusText = "Nothing to export.";
+            return;
+        }
+
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+
+        var baseName = !string.IsNullOrWhiteSpace(vm.LoadedFilePath)
+            ? Path.GetFileNameWithoutExtension(vm.LoadedFilePath)
+            : "document";
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export EPUB",
+            SuggestedFileName = $"{baseName}.epub",
+            FileTypeChoices =
+            [
+                new FilePickerFileType("EPUB") { Patterns = ["*.epub"] }
+            ]
+        });
+
+        if (file != null)
+            await vm.ExportToEpubAsync(file.Path.LocalPath);
+    }
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);

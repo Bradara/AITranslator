@@ -50,8 +50,11 @@
           <TextBox Text="{Binding WebUrl}" Watermark="Enter web address..." Width="300" Height="32" VerticalAlignment="Center" />
           <Button Content="🌐 Parse Web" Command="{Binding ParseFromWebCommand}" Padding="8,4" />
           <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
-          <Button x:Name="SaveOriginalBtn" Content="💾 Save Original" Click="OnSaveOriginalClick"
-                  Padding="8,4" ToolTip.Tip="Save the original (input) text to a file" />
+          <Button x:Name="SaveOriginalBtn" Content="💾 Save" Click="OnSaveOriginalClick"
+                  Padding="8,4" ToolTip.Tip="Save current original text to the loaded file (if any)" />
+          <Button x:Name="SaveOriginalAsBtn" Content="💾 Save As..." Click="OnSaveOriginalAsClick"
+                  Padding="8,4" ToolTip.Tip="Save original text to a new file" />
+          <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
           <Button x:Name="SaveTranslationBtn" Content="💾 Save Translation" Click="OnSaveFileClick"
                   Padding="8,4" ToolTip.Tip="Save the combined translation to a file" />
         </StackPanel>

@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -217,11 +218,29 @@ public partial class MarkdownView : UserControl
             return;
         }
 
+        await ShowSaveOriginalDialog(topLevel, vm);
+    }
+
+    private async void OnSaveOriginalAsClick(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        if (DataContext is not MarkdownViewModel vm) return;
+
+        await ShowSaveOriginalDialog(topLevel, vm);
+    }
+
+    private async Task ShowSaveOriginalDialog(TopLevel topLevel, MarkdownViewModel vm)
+    {
+        var suggestedName = vm.LoadedFilePath is not null
+            ? System.IO.Path.GetFileName(vm.LoadedFilePath)
+            : "original.md";
+
         var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save Original Text",
             DefaultExtension = "md",
-            SuggestedFileName = "original.md",
+            SuggestedFileName = suggestedName,
             FileTypeChoices = [
                 new FilePickerFileType("Markdown") { Patterns = ["*.md"] },
                 new FilePickerFileType("Text") { Patterns = ["*.txt"] },

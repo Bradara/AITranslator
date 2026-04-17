@@ -18,6 +18,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private readonly SpeechService _speechService;
     private readonly SettingsService _settingsService;
     private readonly CacheService _cacheService;
+    private readonly EpubExportService _epubExportService;
     private CancellationTokenSource? _speechCts;
     private readonly Stack<string> _navHistory = new();
     private bool _loadingFile;
@@ -42,6 +43,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private bool _isSpeaking;
 
     [ObservableProperty]
+    private bool _isExporting;
+
+    [ObservableProperty]
     private string _statusText = "Ready — open a markdown file or paste text below";
 
     [ObservableProperty]
@@ -58,16 +62,59 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
-    public MarkdownPreviewViewModel(SpeechService speechService, SettingsService settingsService, CacheService cacheService)
+    public MarkdownPreviewViewModel(
+        SpeechService speechService,
+        SettingsService settingsService,
+        CacheService cacheService,
+        EpubExportService epubExportService)
     {
         _speechService = speechService;
         _settingsService = settingsService;
         _cacheService = cacheService;
+        _epubExportService = epubExportService;
 
         // Pre-populate language from settings if set
         var src = settingsService.Settings.SpeechSourceLanguage;
         if (!string.IsNullOrWhiteSpace(src) && AvailableLanguages.Contains(src))
             ReadLanguage = src;
+    }
+
+    public async Task ExportToEpubAsync(string outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(MarkdownText))
+        {
+            StatusText = "Nothing to export.";
+            return;
+        }
+
+        try
+        {
+            IsExporting = true;
+            StatusText = "Exporting EPUB...";
+            var result = await _epubExportService.ExportAsync(
+                MarkdownText,
+                LoadedFilePath,
+                outputPath,
+                ReadLanguage,
+                CancellationToken.None);
+
+            if (result.SkippedImages > 0)
+            {
+                StatusText = $"EPUB exported with {result.SkippedImages} skipped images: {Path.GetFileName(outputPath)}.";
+            }
+            else
+            {
+                StatusText = $"EPUB exported: {Path.GetFileName(outputPath)}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            IsExporting = false;
+        }
     }
 
     /// <summary>Called from code-behind when InputTextBox text changes (paste).</summary>

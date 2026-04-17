@@ -26,5 +26,6 @@
     <PackageReference Include="Markdown.Avalonia" />
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="ReverseMarkdown" />
+    <PackageReference Include="Markdig" />
   </ItemGroup>
 </Project>

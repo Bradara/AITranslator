@@ -15,6 +15,9 @@
       <Button x:Name="OpenFileBtn" Content="📂 Open MD" Click="OnOpenFileClick" />
       <Button x:Name="HistoryBtn" Content="📋 История" Click="OnHistoryClick"
               ToolTip.Tip="История на отворени файлове" />
+      <Button Content="📘 EPUB" Click="OnExportEpubClick"
+              IsEnabled="{Binding !IsExporting}"
+              ToolTip.Tip="Експорт към EPUB (офлайн изображения)" />
       <Button Content="← Back"
               Command="{Binding GoBackCommand}"
               ToolTip.Tip="Navigate back to the previous document" />
