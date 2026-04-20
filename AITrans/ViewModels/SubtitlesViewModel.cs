@@ -73,6 +73,42 @@ public partial class SubtitlesViewModel : ViewModelBase
             UpdateLastSelectedIndex(_selectedIndices.Min());
     }
 
+    [RelayCommand]
+    private void DeleteSelected()
+    {
+        if (Entries.Count == 0 || _selectedIndices.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        var indices = _selectedIndices
+            .Distinct()
+            .Where(i => i >= 0 && i < Entries.Count)
+            .OrderByDescending(i => i)
+            .ToList();
+
+        if (indices.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        var firstRemoved = indices.Min();
+        foreach (var idx in indices)
+            Entries.RemoveAt(idx);
+
+        _selectedIndices.Clear();
+        _lastSelectedIndex = -1;
+
+        ReindexEntries();
+        OnPropertyChanged(nameof(HasEntries));
+
+        StatusText = $"Deleted {indices.Count} row(s).";
+        if (Entries.Count > 0)
+            ScrollToRow = Math.Min(firstRemoved, Entries.Count - 1);
+    }
+
     public void LoadFile(string path)
     {
         var parsed = SrtParser.Parse(path);
@@ -153,6 +189,12 @@ public partial class SubtitlesViewModel : ViewModelBase
         CacheInfo = all.Count == 1
             ? $"Cached: {name} — {info.TranslatedEntries}/{info.TotalEntries} translated — {info.SavedAt.ToLocalTime():HH:mm}"
             : $"Cached: {all.Count} sessions (latest: {name} — {info.SavedAt.ToLocalTime():HH:mm})";
+    }
+
+    private void ReindexEntries()
+    {
+        for (int i = 0; i < Entries.Count; i++)
+            Entries[i].Index = i + 1;
     }
 
     [RelayCommand]

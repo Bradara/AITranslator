@@ -83,6 +83,9 @@ public partial class SettingsViewModel : ViewModelBase
     private string _selectedTheme = "System";
 
     [ObservableProperty]
+    private string _ebookWorkingFolder = "";
+
+    [ObservableProperty]
     private string _defaultLanguage = "Bulgarian";
 
     [ObservableProperty]
@@ -310,6 +313,7 @@ public partial class SettingsViewModel : ViewModelBase
         AzureSpeechApiKey = s.AzureSpeechApiKey;
         AzureSpeechRegion = s.AzureSpeechRegion;
         SpeechSourceLanguage = s.SpeechSourceLanguage;
+        EbookWorkingFolder = s.EbookWorkingFolder;
         DefaultLanguage = s.DefaultLanguage;
         BatchSize = s.BatchSize;
         MarkdownBatchSize = s.MarkdownBatchSize;
@@ -482,6 +486,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.AzureSpeechApiKey = AzureSpeechApiKey;
         s.AzureSpeechRegion = AzureSpeechRegion;
         s.SpeechSourceLanguage = SpeechSourceLanguage;
+        s.EbookWorkingFolder = EbookWorkingFolder;
         s.DefaultLanguage = DefaultLanguage;
         s.BatchSize = BatchSize;
         s.MarkdownBatchSize = MarkdownBatchSize;

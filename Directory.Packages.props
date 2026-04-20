@@ -22,7 +22,7 @@
         <PackageVersion Include="Markdown.Avalonia" Version="11.0.2" />
         <PackageVersion Include="HtmlAgilityPack" Version="1.11.54" />
         <PackageVersion Include="ReverseMarkdown" Version="3.17.0" />
-        <PackageVersion Include="Markdig" Version="0.40.1" />
+        <PackageVersion Include="Markdig" Version="0.41.0" />
 
         <PackageVersion Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.15" />
     </ItemGroup>

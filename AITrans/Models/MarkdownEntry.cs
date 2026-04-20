@@ -8,7 +8,12 @@ public partial class MarkdownEntry : ObservableObject
     // "Cannot split: requested length N consumes entire run."
     private const string Zwsp = "\u200B";
 
-    public int Index { get; set; }
+    private int _index;
+    public int Index
+    {
+        get => _index;
+        set => SetProperty(ref _index, value);
+    }
 
     private string _originalText = "";
     public string OriginalText

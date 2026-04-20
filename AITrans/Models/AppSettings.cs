@@ -18,6 +18,9 @@ public class AppSettings
 
     public string ThemeName { get; set; } = "System";
 
+    // Ebook import
+    public string EbookWorkingFolder { get; set; } = "";
+
     public string OpenAiApiKey { get; set; } = "";
     public string GitHubCopilotApiKey { get; set; } = "";
     public string OpenRouterApiKey { get; set; } = "";

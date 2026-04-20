@@ -20,9 +20,10 @@ public partial class MainViewModel : ViewModelBase
         var speechService = new SpeechService();
         var cacheService = new CacheService();
         var epubExportService = new EpubExportService();
+        var ebookImportService = new EbookImportService();
 
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
-        MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService);
+        MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
     }

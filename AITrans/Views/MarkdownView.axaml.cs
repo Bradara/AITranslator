@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -132,6 +133,18 @@ public partial class MarkdownView : UserControl
 
     // ── Existing handlers ────────────────────────────────────────────────────
 
+    private void OnParagraphGridPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(ParagraphGrid).Properties.IsRightButtonPressed) return;
+
+        if (e.Source is not Control source) return;
+        var row = source.GetVisualAncestors().OfType<DataGridRow>().FirstOrDefault();
+        if (row == null || row.DataContext == null) return;
+
+        if (!row.IsSelected)
+            ParagraphGrid.SelectedItem = row.DataContext;
+    }
+
     private void OnGridSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (DataContext is MarkdownViewModel vm)
@@ -177,6 +190,49 @@ public partial class MarkdownView : UserControl
 
         if (files.Count > 0 && DataContext is MarkdownViewModel vm)
             vm.LoadFile(files[0].Path.LocalPath);
+    }
+
+    private async void OnImportEbookClick(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+
+        if (DataContext is not MarkdownViewModel vm) return;
+
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import EPUB/FB2",
+            AllowMultiple = false,
+            FileTypeFilter = [
+                new FilePickerFileType("Ebook") { Patterns = ["*.epub", "*.fb2"] },
+                new FilePickerFileType("All Files") { Patterns = ["*"] }
+            ]
+        });
+
+        if (files.Count == 0) return;
+
+        var sourcePath = files[0].Path.LocalPath;
+        var outputRoot = vm.EbookWorkingFolder;
+
+        if (string.IsNullOrWhiteSpace(outputRoot) || !Directory.Exists(outputRoot))
+        {
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Select working folder for ebook import",
+                AllowMultiple = false
+            });
+
+            if (folders.Count == 0)
+            {
+                vm.StatusText = "Import canceled. Working folder not set.";
+                return;
+            }
+
+            outputRoot = folders[0].Path.LocalPath;
+            vm.UpdateEbookWorkingFolder(outputRoot);
+        }
+
+        await vm.ImportEbookAsync(sourcePath, outputRoot);
     }
 
     private async void OnSaveFileClick(object? sender, RoutedEventArgs e)

@@ -1,0 +1,18 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-desktop",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"AITrans.Desktop/AITrans.Desktop.csproj"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			]
+		}
+	]
+}

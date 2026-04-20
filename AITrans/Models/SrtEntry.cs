@@ -4,7 +4,12 @@ namespace AITrans.Models;
 
 public partial class SrtEntry : ObservableObject
 {
-    public int Index { get; set; }
+    private int _index;
+    public int Index
+    {
+        get => _index;
+        set => SetProperty(ref _index, value);
+    }
     public string StartTime { get; set; } = "";
     public string EndTime { get; set; } = "";
     public string OriginalText { get; set; } = "";

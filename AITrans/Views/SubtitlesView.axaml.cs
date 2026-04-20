@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -114,6 +115,18 @@ public partial class SubtitlesView : UserControl
         if (DataContext is not SubtitlesViewModel vm || vm.Entries.Count == 0) return;
         rowIndex = Math.Clamp(rowIndex, 0, vm.Entries.Count - 1);
         SubtitleGrid.ScrollIntoView(vm.Entries[rowIndex], null);
+    }
+
+    private void OnSubtitleGridPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(SubtitleGrid).Properties.IsRightButtonPressed) return;
+
+        if (e.Source is not Control source) return;
+        var row = source.GetVisualAncestors().OfType<DataGridRow>().FirstOrDefault();
+        if (row == null || row.DataContext == null) return;
+
+        if (!row.IsSelected)
+            SubtitleGrid.SelectedItem = row.DataContext;
     }
 
     private void OnGridSelectionChanged(object? sender, SelectionChangedEventArgs e)

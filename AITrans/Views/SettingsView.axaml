@@ -216,6 +216,19 @@
       <StackPanel Margin="16,12" Spacing="14">
         <TextBlock Text="General Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
 
+        <!-- Ebook import working folder -->
+        <StackPanel Spacing="5">
+          <TextBlock Text="Ebook working folder" FontWeight="SemiBold" />
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBox Text="{Binding EbookWorkingFolder}"
+                     Watermark="Select a folder for imported Markdown and images"
+                     Width="300" />
+            <Button Content="Browse..." Click="OnPickEbookFolderClick" Padding="10,4" />
+          </StackPanel>
+          <TextBlock Text="Used for EPUB/FB2 import output (one markdown file + assets folder)."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
         <!-- Theme -->
         <StackPanel Spacing="5">
           <TextBlock Text="Theme" FontWeight="SemiBold" />

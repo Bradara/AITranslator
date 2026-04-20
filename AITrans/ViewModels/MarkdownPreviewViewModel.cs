@@ -79,24 +79,34 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             ReadLanguage = src;
     }
 
-    public async Task ExportToEpubAsync(string outputPath)
+    public async Task<EpubExportResult?> ExportToEpubAsync(
+        string outputPath,
+        IReadOnlyList<string>? extraBaseDirs = null)
     {
         if (string.IsNullOrWhiteSpace(MarkdownText))
         {
             StatusText = "Nothing to export.";
-            return;
+            return null;
         }
 
         try
         {
             IsExporting = true;
             StatusText = "Exporting EPUB...";
+            var fallbackDirs = new List<string>();
+            var workingFolder = _settingsService.Settings.EbookWorkingFolder;
+            if (!string.IsNullOrWhiteSpace(workingFolder))
+                fallbackDirs.Add(workingFolder);
+            if (extraBaseDirs != null)
+                fallbackDirs.AddRange(extraBaseDirs.Where(d => !string.IsNullOrWhiteSpace(d)));
+
             var result = await _epubExportService.ExportAsync(
                 MarkdownText,
                 LoadedFilePath,
                 outputPath,
                 ReadLanguage,
-                CancellationToken.None);
+                CancellationToken.None,
+                fallbackBaseDirs: fallbackDirs);
 
             if (result.SkippedImages > 0)
             {
@@ -106,10 +116,13 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             {
                 StatusText = $"EPUB exported: {Path.GetFileName(outputPath)}.";
             }
+
+            return result;
         }
         catch (Exception ex)
         {
             StatusText = $"Export failed: {ex.Message}";
+            return null;
         }
         finally
         {

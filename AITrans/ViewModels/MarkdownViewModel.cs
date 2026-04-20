@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -23,8 +24,20 @@ public partial class MarkdownViewModel : ViewModelBase
     private readonly SettingsService _settingsService;
     private readonly SpeechService _speechService;
     private readonly CacheService _cacheService;
+    private readonly EbookImportService _ebookImportService;
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _speechCts;
+
+    private const string WebAssetsDirName = "web-assets";
+    private string? _webAssetsTempRoot;
+    private readonly List<WebAssetFile> _webAssets = [];
+    private int _lastWebImagesDownloaded;
+    private int _lastWebImagesSkipped;
+    private int _lastWebImagesFailed;
+
+    private sealed record WebAssetFile(string FileName, string TempPath);
+    private sealed record ImagePrepareSummary(int Downloaded, int Skipped, int Failed);
+    private sealed record ArticleExtractResult(string Markdown, string? Title, ImagePrepareSummary ImageSummary);
 
     [ObservableProperty]
     private string _inputText = "";
@@ -73,14 +86,23 @@ public partial class MarkdownViewModel : ViewModelBase
 
     internal CacheService CacheService => _cacheService;
 
-    public MarkdownViewModel(TranslationService translationService, SettingsService settingsService, SpeechService speechService, CacheService cacheService)
+    public MarkdownViewModel(TranslationService translationService, SettingsService settingsService, SpeechService speechService, CacheService cacheService, EbookImportService ebookImportService)
     {
         _translationService = translationService;
         _settingsService = settingsService;
         _speechService = speechService;
         _cacheService = cacheService;
+        _ebookImportService = ebookImportService;
         SelectedLanguage = settingsService.Settings.DefaultLanguage;
         UpdateCacheInfo();
+    }
+
+    public string EbookWorkingFolder => _settingsService.Settings.EbookWorkingFolder;
+
+    public void UpdateEbookWorkingFolder(string folderPath)
+    {
+        _settingsService.Settings.EbookWorkingFolder = folderPath ?? "";
+        _settingsService.Save();
     }
 
     public void SetSelectedIndices(List<int> indices)
@@ -88,6 +110,43 @@ public partial class MarkdownViewModel : ViewModelBase
         _selectedIndices = indices;
         if (_selectedIndices.Count > 0)
             UpdateLastSelectedIndex(_selectedIndices.Min());
+    }
+
+    [RelayCommand]
+    private void DeleteSelected()
+    {
+        if (Paragraphs.Count == 0 || _selectedIndices.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        var indices = _selectedIndices
+            .Distinct()
+            .Where(i => i >= 0 && i < Paragraphs.Count)
+            .OrderByDescending(i => i)
+            .ToList();
+
+        if (indices.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        var firstRemoved = indices.Min();
+        foreach (var idx in indices)
+            Paragraphs.RemoveAt(idx);
+
+        _selectedIndices.Clear();
+        _lastSelectedIndex = -1;
+
+        ReindexParagraphs();
+        SyncInputTextFromParagraphs();
+        OnPropertyChanged(nameof(HasParagraphs));
+
+        StatusText = $"Deleted {indices.Count} paragraph(s).";
+        if (Paragraphs.Count > 0)
+            ScrollToRow = Math.Min(firstRemoved, Paragraphs.Count - 1);
     }
 
     public void LoadFile(string path)
@@ -102,8 +161,10 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public void SaveTranslation(string path)
     {
-        File.WriteAllText(path, GetCombinedTranslation());
-        StatusText = $"Saved to {Path.GetFileName(path)}";
+        var text = GetCombinedTranslation();
+        File.WriteAllText(path, text);
+        var assetNote = FinalizeWebAssetsForPath(path);
+        StatusText = $"Saved to {Path.GetFileName(path)}{assetNote}";
         // Cache is preserved so translation progress isn't lost
         UpdateCacheInfo();
     }
@@ -116,7 +177,37 @@ public partial class MarkdownViewModel : ViewModelBase
 
         File.WriteAllText(path, text, System.Text.Encoding.UTF8);
         LoadedFilePath = path;
-        StatusText = $"Original saved to {Path.GetFileName(path)}";
+        var assetNote = FinalizeWebAssetsForPath(path);
+        StatusText = $"Original saved to {Path.GetFileName(path)}{assetNote}";
+    }
+
+    public async Task ImportEbookAsync(string sourcePath, string outputRoot)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            StatusText = "Import canceled.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(outputRoot))
+        {
+            StatusText = "Working folder not set.";
+            return;
+        }
+
+        try
+        {
+            StatusText = "Importing ebook...";
+            var result = await _ebookImportService.ImportAsync(sourcePath, outputRoot, CancellationToken.None);
+            InputText = result.Markdown;
+            LoadedFilePath = result.MarkdownPath;
+            ParseParagraphs();
+            StatusText = $"Imported {Paragraphs.Count} paragraphs, {result.ImageCount} images.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Import failed: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -181,6 +272,19 @@ public partial class MarkdownViewModel : ViewModelBase
             : $"Cached: {all.Count} sessions (latest: {info.FileName} — {info.SavedAt.ToLocalTime():HH:mm})";
     }
 
+    private void ReindexParagraphs()
+    {
+        for (int i = 0; i < Paragraphs.Count; i++)
+            Paragraphs[i].Index = i + 1;
+    }
+
+    private void SyncInputTextFromParagraphs()
+    {
+        InputText = Paragraphs.Count == 0
+            ? ""
+            : string.Join("\n\n", Paragraphs.Select(p => p.OriginalText));
+    }
+
     [RelayCommand]
     private void ParseParagraphs()
     {
@@ -231,11 +335,15 @@ public partial class MarkdownViewModel : ViewModelBase
         try
         {
             StatusText = "Fetching web page...";
+
+            ResetWebAssetsState();
             
             // Validate and normalize URL
             var url = WebUrl.Trim();
             if (!url.StartsWith("http://") && !url.StartsWith("https://"))
                 url = "https://" + url;
+
+            var baseUri = new Uri(url);
 
             var handler = new System.Net.Http.HttpClientHandler
             {
@@ -287,6 +395,8 @@ public partial class MarkdownViewModel : ViewModelBase
                     return;
                 }
 
+                baseUri = response.RequestMessage?.RequestUri ?? baseUri;
+
                 // Read raw bytes and detect encoding from HTML meta tags
                 var rawBytes = await response.Content.ReadAsByteArrayAsync();
                 var htmlContent = DetectEncodingAndDecode(rawBytes);
@@ -302,8 +412,13 @@ public partial class MarkdownViewModel : ViewModelBase
                 var doc = new HtmlDocument();
                 doc.LoadHtml(htmlContent);
 
-                // All cleanup happens inside ExtractArticleAsMarkdown
-                var markdown = ExtractArticleAsMarkdown(doc);
+                // All cleanup happens inside ExtractArticleAsMarkdownAsync
+                var result = await ExtractArticleAsMarkdownAsync(doc, baseUri, client);
+                var markdown = result.Markdown;
+
+                _lastWebImagesDownloaded = result.ImageSummary.Downloaded;
+                _lastWebImagesSkipped = result.ImageSummary.Skipped;
+                _lastWebImagesFailed = result.ImageSummary.Failed;
 
                 if (string.IsNullOrWhiteSpace(markdown) || markdown.Length < 50)
                 {
@@ -314,7 +429,8 @@ public partial class MarkdownViewModel : ViewModelBase
                 InputText = markdown;
                 ParseParagraphs();
 
-                StatusText = $"Successfully parsed web page ({Paragraphs.Count} paragraphs).";
+                var imageNote = BuildImageStatusText(result.ImageSummary);
+                StatusText = $"Successfully parsed web page ({Paragraphs.Count} paragraphs).{imageNote}";
             }
         }
         catch (TaskCanceledException)
@@ -358,6 +474,126 @@ public partial class MarkdownViewModel : ViewModelBase
         return encoding.GetString(rawBytes);
     }
 
+    private void ResetWebAssetsState()
+    {
+        if (!string.IsNullOrWhiteSpace(_webAssetsTempRoot) && Directory.Exists(_webAssetsTempRoot))
+        {
+            try { Directory.Delete(_webAssetsTempRoot, true); } catch { }
+        }
+
+        _webAssetsTempRoot = null;
+        _webAssets.Clear();
+        _lastWebImagesDownloaded = 0;
+        _lastWebImagesSkipped = 0;
+        _lastWebImagesFailed = 0;
+    }
+
+    private static string BuildImageStatusText(ImagePrepareSummary summary)
+    {
+        if (summary.Downloaded == 0 && summary.Skipped == 0 && summary.Failed == 0)
+            return "";
+
+        var parts = new List<string>();
+        if (summary.Downloaded > 0) parts.Add($"downloaded {summary.Downloaded}");
+        if (summary.Skipped > 0) parts.Add($"skipped {summary.Skipped}");
+        if (summary.Failed > 0) parts.Add($"failed {summary.Failed}");
+        return " Images: " + string.Join(", ", parts) + ".";
+    }
+
+    private static string ComposeFinalMarkdown(string? title, string body)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return body;
+
+        var cleanTitle = NormalizeInlineText(title);
+        if (string.IsNullOrWhiteSpace(cleanTitle))
+            return body;
+
+        if (string.IsNullOrWhiteSpace(body))
+            return "# " + cleanTitle;
+
+        return "# " + cleanTitle + "\n\n" + body;
+    }
+
+    private static string NormalizeInlineText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        text = HtmlEntity.DeEntitize(text);
+        text = Regex.Replace(text, "\\s+", " ").Trim();
+        return text;
+    }
+
+    private string EnsureWebAssetsTempRoot(Uri baseUri)
+    {
+        if (!string.IsNullOrWhiteSpace(_webAssetsTempRoot))
+            return _webAssetsTempRoot;
+
+        var safeHost = SanitizeFileName(baseUri.Host);
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AITrans", "web-assets-temp", safeHost, stamp);
+        Directory.CreateDirectory(dir);
+        _webAssetsTempRoot = dir;
+        return dir;
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var c in value)
+            sb.Append(invalid.Contains(c) ? '_' : c);
+        return sb.ToString();
+    }
+
+    private static string BuildFileName(string key, string extension)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+        var hashText = Convert.ToHexString(hash).ToLowerInvariant().Substring(0, 12);
+        return $"img_{hashText}{extension}";
+    }
+
+    private string FinalizeWebAssetsForPath(string path)
+    {
+        if (_webAssets.Count == 0 || string.IsNullOrWhiteSpace(_webAssetsTempRoot))
+            return "";
+
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (string.IsNullOrWhiteSpace(dir))
+                return "";
+
+            var targetDir = Path.Combine(dir, WebAssetsDirName);
+            Directory.CreateDirectory(targetDir);
+
+            int copied = 0;
+            int missing = 0;
+            foreach (var asset in _webAssets)
+            {
+                var dest = Path.Combine(targetDir, asset.FileName);
+                if (!File.Exists(asset.TempPath))
+                {
+                    missing++;
+                    continue;
+                }
+
+                File.Copy(asset.TempPath, dest, true);
+                copied++;
+            }
+
+            if (copied == 0 && missing == 0)
+                return "";
+
+            return $" (images copied: {copied}, missing: {missing})";
+        }
+        catch (Exception ex)
+        {
+            return $" (image copy failed: {ex.Message})";
+        }
+    }
+
     private static readonly Converter MdConverter = new(new Config
     {
         UnknownTags = Config.UnknownTagsOption.Bypass,
@@ -368,7 +604,7 @@ public partial class MarkdownViewModel : ViewModelBase
 
     /// <summary>Extract article content from parsed HTML as markdown.
     /// Uses ReverseMarkdown for structured HTML; falls back to text walker for br-only pages.</summary>
-    private static string ExtractArticleAsMarkdown(HtmlDocument doc)
+    private async Task<ArticleExtractResult> ExtractArticleAsMarkdownAsync(HtmlDocument doc, Uri baseUri, HttpClient client)
     {
         var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
 
@@ -376,28 +612,67 @@ public partial class MarkdownViewModel : ViewModelBase
         RemoveTagsGlobally(body, SkipTags);
 
         // Phase 2: Try semantic containers BEFORE removing structural chrome.
-        // This preserves <header>/<footer> inside <article> (e.g. article title, author info).
-        var container = FindContentContainer(body);
+        var container = FindMainContainer(body);
+        var fromMain = container != null;
+        var fromMainArticles = false;
 
         if (container == null)
         {
-            // No semantic container found — remove structural chrome + noise divs,
-            // then use text-density heuristic to find the best content block.
+            container = BuildMainArticlesContainer(body, out fromMainArticles);
+        }
+
+        if (container == null)
+        {
+            container = FindContentContainer(body);
+        }
+
+        if (container == null)
+        {
             RemoveTagsGlobally(body, ChromeTags);
             RemoveNoiseDivs(body);
             container = FindDensestTextBlock(body) ?? body;
         }
+        else if (!fromMain && !fromMainArticles)
+        {
+            var containerTextLen = NormalizeInlineText(container.InnerText).Length;
+            if (containerTextLen < 200)
+            {
+                var dense = FindDensestTextBlock(body);
+                if (dense != null)
+                {
+                    var denseLen = NormalizeInlineText(dense.InnerText).Length;
+                    if (denseLen > Math.Max(400, containerTextLen * 2))
+                        container = dense;
+                }
+            }
+        }
+
+        var title = ExtractTitle(doc, container);
+
+        // Remove chrome + noisy blocks inside the article after title extraction.
+        RemoveTagsGlobally(container, ChromeTags);
+        RemoveNoiseDivs(container);
+        RemoveArticleNoiseBlocks(container);
+        if (fromMain)
+            RemoveMainNoiseBlocks(container);
+
+        // Normalize images and download assets before conversion.
+        var imageSummary = await PrepareImagesAsync(container, baseUri, client);
+        NormalizeFigures(container);
 
         // Phase 3: Detect structured vs. unstructured and convert.
         var structuredNodes = container.SelectNodes(
             ".//p | .//h1 | .//h2 | .//h3 | .//h4 | .//h5 | .//h6 | .//ul | .//ol | .//blockquote | .//table");
         bool isStructured = structuredNodes != null && structuredNodes.Count >= 2;
 
-        string markdown = isStructured
+        string bodyMarkdown = isStructured
             ? MdConverter.Convert(container.OuterHtml)
             : ExtractUnstructuredText(container);
 
-        return CleanMarkdown(markdown);
+        bodyMarkdown = CleanMarkdown(bodyMarkdown);
+        var markdown = ComposeFinalMarkdown(title, bodyMarkdown);
+
+        return new ArticleExtractResult(markdown, title, imageSummary);
     }
 
     /// <summary>Try semantic HTML selectors to find the article container.
@@ -419,16 +694,191 @@ public partial class MarkdownViewModel : ViewModelBase
             ".//div[contains(@class,'entry-body')]",
             ".//div[contains(@class,'story-body')]",
             ".//div[contains(@class,'page-content')]",
+            ".//section[contains(@class,'content')]",
+            ".//section[contains(@class,'article')]",
         };
+
+        HtmlNode? bestNode = null;
+        double bestScore = 0;
 
         foreach (var sel in selectors)
         {
-            var node = body.SelectSingleNode(sel);
-            if (node != null && (node.InnerText?.Trim().Length ?? 0) >= 50)
-                return node;
+            var nodes = body.SelectNodes(sel);
+            if (nodes == null) continue;
+
+            foreach (var node in nodes)
+            {
+                var text = NormalizeInlineText(node.InnerText);
+                var textLen = text.Length;
+                if (textLen < 50) continue;
+
+                var htmlLen = node.InnerHtml?.Length ?? 0;
+                if (htmlLen <= 0) continue;
+
+                var score = (double)textLen * textLen / htmlLen;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestNode = node;
+                }
+            }
         }
 
-        return null;
+        return bestNode;
+    }
+
+    /// <summary>Prefer extracting the entire &lt;main&gt; content when present.</summary>
+    private static HtmlNode? FindMainContainer(HtmlNode body)
+    {
+        var main = body.SelectSingleNode(".//main");
+        if (main == null) return null;
+
+        var textLen = NormalizeInlineText(main.InnerText).Length;
+        return textLen >= 100 ? main : null;
+    }
+
+    /// <summary>Combine all article nodes inside &lt;main&gt; into a single container.</summary>
+    private static HtmlNode? BuildMainArticlesContainer(HtmlNode body, out bool fromMainArticles)
+    {
+        fromMainArticles = false;
+        var main = body.SelectSingleNode(".//main");
+        if (main == null) return null;
+
+        var articles = main.SelectNodes(".//article")?.ToList();
+        if (articles == null || articles.Count == 0) return null;
+
+        var meaningful = articles
+            .Where(a => NormalizeInlineText(a.InnerText).Length >= 50)
+            .ToList();
+
+        if (meaningful.Count == 0) return null;
+        if (meaningful.Count == 1) return meaningful[0];
+
+        var wrapper = main.OwnerDocument.CreateElement("div");
+        foreach (var article in meaningful)
+            wrapper.AppendChild(article.CloneNode(true));
+
+        fromMainArticles = true;
+        return wrapper;
+    }
+
+    /// <summary>Extracts article title by priority: h1 in container → og:title → &lt;title&gt;.</summary>
+    private static string? ExtractTitle(HtmlDocument doc, HtmlNode? container)
+    {
+        if (container != null)
+        {
+            var h1 = container.SelectSingleNode(".//h1");
+            var h1Text = NormalizeInlineText(h1?.InnerText);
+            if (!string.IsNullOrWhiteSpace(h1Text))
+            {
+                h1?.Remove();
+                return h1Text;
+            }
+        }
+
+        var og = doc.DocumentNode.SelectSingleNode("//meta[@property='og:title' or @name='og:title']");
+        var ogText = NormalizeInlineText(og?.GetAttributeValue("content", ""));
+        if (!string.IsNullOrWhiteSpace(ogText))
+            return ogText;
+
+        var titleNode = doc.DocumentNode.SelectSingleNode("//title");
+        var titleText = NormalizeInlineText(titleNode?.InnerText);
+        return string.IsNullOrWhiteSpace(titleText) ? null : titleText;
+    }
+
+    /// <summary>Remove author/date/share/tags blocks even when inside article container.</summary>
+    private static void RemoveArticleNoiseBlocks(HtmlNode root)
+    {
+        string[] patterns =
+        {
+            "author", "byline", "dateline", "date", "time", "timestamp",
+            "tag", "tags", "category", "breadcrumb",
+            "share", "social", "comment", "related", "recommend",
+            "subscribe", "newsletter", "promo", "sponsor"
+        };
+
+        var toRemove = root.Descendants()
+            .Where(n => n.NodeType == HtmlNodeType.Element &&
+                        n.Name is "div" or "section" or "aside" or "nav" or "header" or "footer" or
+                            "p" or "span" or "time" or "ul" or "ol" or "li")
+            .Where(n =>
+            {
+                var cls = n.GetAttributeValue("class", "").ToLowerInvariant();
+                var id = n.GetAttributeValue("id", "").ToLowerInvariant();
+                var aria = n.GetAttributeValue("aria-label", "").ToLowerInvariant();
+                var role = n.GetAttributeValue("role", "").ToLowerInvariant();
+                var itemprop = n.GetAttributeValue("itemprop", "").ToLowerInvariant();
+                return patterns.Any(p => cls.Contains(p) || id.Contains(p) || aria.Contains(p) || role.Contains(p) || itemprop.Contains(p));
+            })
+            .ToList();
+
+        foreach (var n in toRemove)
+            n.Remove();
+    }
+
+    /// <summary>Remove header/footer/navigation blocks inside &lt;main&gt;.</summary>
+    private static void RemoveMainNoiseBlocks(HtmlNode root)
+    {
+        string[] patterns =
+        {
+            "header", "footer", "navbar", "topbar", "breadcrumb", "menu",
+            "nav", "toolbar", "banner", "masthead"
+        };
+
+        var toRemove = root.Descendants()
+            .Where(n => n.NodeType == HtmlNodeType.Element &&
+                        n != root &&
+                        n.Name is "div" or "section" or "nav" or "header" or "footer" or "ul" or "ol" or "li")
+            .Where(n =>
+            {
+                var cls = n.GetAttributeValue("class", "").ToLowerInvariant();
+                var id = n.GetAttributeValue("id", "").ToLowerInvariant();
+                var aria = n.GetAttributeValue("aria-label", "").ToLowerInvariant();
+                var role = n.GetAttributeValue("role", "").ToLowerInvariant();
+                return patterns.Any(p => cls.Contains(p) || id.Contains(p) || aria.Contains(p) || role.Contains(p));
+            })
+            .ToList();
+
+        foreach (var node in toRemove)
+        {
+            var textLen = NormalizeInlineText(node.InnerText).Length;
+            var linkCount = node.SelectNodes(".//a")?.Count ?? 0;
+            if (textLen < 400 || linkCount >= 6)
+                node.Remove();
+        }
+    }
+
+    /// <summary>Normalize figure blocks into img + caption paragraphs.</summary>
+    private static void NormalizeFigures(HtmlNode container)
+    {
+        var figures = container.SelectNodes(".//figure")?.ToList() ?? [];
+        if (figures.Count == 0) return;
+
+        foreach (var figure in figures)
+        {
+            var captionNode = figure.SelectSingleNode(".//figcaption");
+            var caption = NormalizeInlineText(captionNode?.InnerText);
+
+            var img = figure.SelectSingleNode(".//img") ?? figure.SelectSingleNode(".//picture//img");
+            if (img != null)
+            {
+                img.Remove();
+                figure.ParentNode?.InsertBefore(img, figure);
+            }
+
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                var p = container.OwnerDocument.CreateElement("p");
+                p.InnerHtml = HtmlEntity.Entitize(caption);
+                if (img != null)
+                    figure.ParentNode?.InsertAfter(p, img);
+                else
+                    figure.ParentNode?.InsertBefore(p, figure);
+            }
+
+            captionNode?.Remove();
+            figure.Remove();
+        }
     }
 
     /// <summary>Remove divs/sections that are common noise based on class/id patterns.</summary>
@@ -456,6 +906,312 @@ public partial class MarkdownViewModel : ViewModelBase
 
         foreach (var n in toRemove)
             n.Remove();
+    }
+
+    private async Task<ImagePrepareSummary> PrepareImagesAsync(HtmlNode container, Uri baseUri, HttpClient client)
+    {
+        if (container == null) return new ImagePrepareSummary(0, 0, 0);
+
+        int downloaded = 0;
+        int skipped = 0;
+        int failed = 0;
+        var urlToFile = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var pictureNodes = container.SelectNodes(".//picture")?.ToList() ?? [];
+        foreach (var picture in pictureNodes)
+        {
+            var bestSource = GetBestPictureSource(picture);
+            if (string.IsNullOrWhiteSpace(bestSource))
+            {
+                skipped++;
+                picture.Remove();
+                continue;
+            }
+
+            var img = picture.SelectSingleNode(".//img") ?? container.OwnerDocument.CreateElement("img");
+            var outcome = await PrepareImageNodeAsync(img, bestSource, baseUri, client, urlToFile);
+            downloaded += outcome.Downloaded;
+            skipped += outcome.Skipped;
+            failed += outcome.Failed;
+
+            img.SetAttributeValue("data-ai-processed", "1");
+            img.Remove();
+            picture.ParentNode?.InsertBefore(img, picture);
+            picture.Remove();
+        }
+
+        var imgNodes = container.SelectNodes(".//img")?.ToList() ?? [];
+        foreach (var img in imgNodes)
+        {
+            if (img.GetAttributeValue("data-ai-processed", "") == "1")
+            {
+                img.Attributes.Remove("data-ai-processed");
+                continue;
+            }
+
+            var src = GetBestImageSource(img);
+            if (string.IsNullOrWhiteSpace(src))
+            {
+                skipped++;
+                img.Remove();
+                continue;
+            }
+
+            var outcome = await PrepareImageNodeAsync(img, src, baseUri, client, urlToFile);
+            downloaded += outcome.Downloaded;
+            skipped += outcome.Skipped;
+            failed += outcome.Failed;
+        }
+
+        return new ImagePrepareSummary(downloaded, skipped, failed);
+    }
+
+    private async Task<ImagePrepareSummary> PrepareImageNodeAsync(
+        HtmlNode img,
+        string source,
+        Uri baseUri,
+        HttpClient client,
+        Dictionary<string, string> urlToFile)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return new ImagePrepareSummary(0, 1, 0);
+
+        img.SetAttributeValue("src", source);
+
+        if (TryParseDataUri(source, out var dataMime, out var dataBytes))
+        {
+            if (dataBytes == null || dataBytes.Length == 0)
+                return new ImagePrepareSummary(0, 0, 1);
+
+            var ext = GetExtensionFromMimeType(dataMime) ?? ".png";
+            var key = "data:" + Convert.ToHexString(SHA256.HashData(dataBytes));
+
+            if (urlToFile.TryGetValue(key, out var cached))
+            {
+                img.SetAttributeValue("src", $"{WebAssetsDirName}/{cached}");
+                RemoveLazyAttributes(img);
+                return new ImagePrepareSummary(0, 0, 0);
+            }
+
+            var fileName = BuildFileName(key, ext);
+            var tempRoot = EnsureWebAssetsTempRoot(baseUri);
+            var tempPath = Path.Combine(tempRoot, fileName);
+            await File.WriteAllBytesAsync(tempPath, dataBytes);
+
+            urlToFile[key] = fileName;
+            TrackWebAsset(fileName, tempPath);
+            img.SetAttributeValue("src", $"{WebAssetsDirName}/{fileName}");
+            RemoveLazyAttributes(img);
+            return new ImagePrepareSummary(1, 0, 0);
+        }
+
+        if (!Uri.TryCreate(baseUri, source, out var resolvedUri))
+            return new ImagePrepareSummary(0, 1, 0);
+
+        if (resolvedUri.Scheme != Uri.UriSchemeHttp && resolvedUri.Scheme != Uri.UriSchemeHttps)
+            return new ImagePrepareSummary(0, 1, 0);
+
+        var keyUrl = resolvedUri.AbsoluteUri;
+        if (urlToFile.TryGetValue(keyUrl, out var existing))
+        {
+            img.SetAttributeValue("src", $"{WebAssetsDirName}/{existing}");
+            RemoveLazyAttributes(img);
+            return new ImagePrepareSummary(0, 0, 0);
+        }
+
+        try
+        {
+            using var response = await client.GetAsync(resolvedUri, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+                return new ImagePrepareSummary(0, 0, 1);
+
+            var ext = GetExtensionFromUrl(resolvedUri) ?? GetExtensionFromMimeType(response.Content.Headers.ContentType?.MediaType) ?? ".jpg";
+            var fileName = BuildFileName(keyUrl, ext);
+            var tempRoot = EnsureWebAssetsTempRoot(baseUri);
+            var tempPath = Path.Combine(tempRoot, fileName);
+
+            if (!File.Exists(tempPath))
+            {
+                await using var input = await response.Content.ReadAsStreamAsync();
+                await using var output = File.Create(tempPath);
+                await input.CopyToAsync(output);
+            }
+
+            urlToFile[keyUrl] = fileName;
+            TrackWebAsset(fileName, tempPath);
+            img.SetAttributeValue("src", $"{WebAssetsDirName}/{fileName}");
+            RemoveLazyAttributes(img);
+            return new ImagePrepareSummary(1, 0, 0);
+        }
+        catch
+        {
+            return new ImagePrepareSummary(0, 0, 1);
+        }
+    }
+
+    private static string? GetBestPictureSource(HtmlNode picture)
+    {
+        string? bestUrl = null;
+        double bestScore = -1;
+
+        var sources = picture.SelectNodes(".//source")?.ToList() ?? [];
+        foreach (var source in sources)
+        {
+            var srcset = GetAttributeNonEmpty(source, "data-srcset") ?? GetAttributeNonEmpty(source, "srcset");
+            if (!string.IsNullOrWhiteSpace(srcset) && TryPickBestSrcsetCandidate(srcset, out var srcsetUrl, out var score))
+            {
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestUrl = srcsetUrl;
+                }
+            }
+
+            var direct = GetAttributeNonEmpty(source, "data-src") ?? GetAttributeNonEmpty(source, "src");
+            if (!string.IsNullOrWhiteSpace(direct) && bestScore < 0)
+            {
+                bestUrl = direct;
+                bestScore = 0;
+            }
+        }
+
+        var img = picture.SelectSingleNode(".//img");
+        var imgSrc = img != null ? GetBestImageSource(img) : null;
+        if (!string.IsNullOrWhiteSpace(imgSrc) && bestScore < 0)
+            return imgSrc;
+
+        return bestUrl;
+    }
+
+    private static string? GetBestImageSource(HtmlNode img)
+    {
+        var srcset = GetAttributeNonEmpty(img, "data-srcset") ?? GetAttributeNonEmpty(img, "srcset");
+        if (!string.IsNullOrWhiteSpace(srcset) && TryPickBestSrcsetCandidate(srcset, out var url, out _))
+            return url;
+
+        var src = GetAttributeNonEmpty(img, "data-src")
+            ?? GetAttributeNonEmpty(img, "data-original")
+            ?? GetAttributeNonEmpty(img, "data-lazy-src")
+            ?? GetAttributeNonEmpty(img, "data-actualsrc")
+            ?? GetAttributeNonEmpty(img, "src");
+        return src;
+    }
+
+    private static bool TryPickBestSrcsetCandidate(string srcset, out string url, out double score)
+    {
+        url = "";
+        score = -1;
+
+        var parts = srcset.Split(',')
+            .Select(p => p.Trim())
+            .Where(p => p.Length > 0)
+            .ToList();
+
+        foreach (var part in parts)
+        {
+            var tokens = part.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0) continue;
+
+            var candidateUrl = tokens[0];
+            var candidateScore = 0d;
+
+            if (tokens.Length > 1)
+            {
+                var descriptor = tokens[1].Trim();
+                if (descriptor.EndsWith("w", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(descriptor.TrimEnd('w', 'W'), out var w))
+                    candidateScore = w;
+                else if (descriptor.EndsWith("x", StringComparison.OrdinalIgnoreCase) &&
+                         double.TryParse(descriptor.TrimEnd('x', 'X'), out var x))
+                    candidateScore = x * 1000;
+            }
+
+            if (candidateScore >= score)
+            {
+                score = candidateScore;
+                url = candidateUrl;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(url);
+    }
+
+    private static string? GetAttributeNonEmpty(HtmlNode node, string name)
+    {
+        var value = node.GetAttributeValue(name, "").Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static void RemoveLazyAttributes(HtmlNode img)
+    {
+        img.Attributes.Remove("srcset");
+        img.Attributes.Remove("data-srcset");
+        img.Attributes.Remove("data-src");
+        img.Attributes.Remove("data-original");
+        img.Attributes.Remove("data-lazy-src");
+        img.Attributes.Remove("data-actualsrc");
+    }
+
+    private static string? GetExtensionFromUrl(Uri uri)
+    {
+        var ext = Path.GetExtension(uri.AbsolutePath);
+        if (string.IsNullOrWhiteSpace(ext)) return null;
+        return ext.StartsWith(".") ? ext.ToLowerInvariant() : "." + ext.ToLowerInvariant();
+    }
+
+    private static string? GetExtensionFromMimeType(string? mimeType)
+    {
+        if (string.IsNullOrWhiteSpace(mimeType)) return null;
+        return mimeType.ToLowerInvariant() switch
+        {
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/svg+xml" => ".svg",
+            "image/bmp" => ".bmp",
+            "image/tiff" => ".tif",
+            _ => null
+        };
+    }
+
+    private static bool TryParseDataUri(string source, out string? mimeType, out byte[]? dataBytes)
+    {
+        mimeType = null;
+        dataBytes = null;
+
+        if (!source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var commaIdx = source.IndexOf(',');
+        if (commaIdx < 0) return false;
+
+        var header = source.Substring(5, commaIdx - 5);
+        var dataPart = source.Substring(commaIdx + 1);
+
+        mimeType = header.Split(';').FirstOrDefault();
+        var isBase64 = header.Contains(";base64", StringComparison.OrdinalIgnoreCase);
+
+        try
+        {
+            dataBytes = isBase64
+                ? Convert.FromBase64String(dataPart)
+                : Encoding.UTF8.GetBytes(Uri.UnescapeDataString(dataPart));
+            return true;
+        }
+        catch
+        {
+            dataBytes = null;
+            return true;
+        }
+    }
+
+    private void TrackWebAsset(string fileName, string tempPath)
+    {
+        if (_webAssets.Any(a => a.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase)))
+            return;
+        _webAssets.Add(new WebAssetFile(fileName, tempPath));
     }
 
     /// <summary>Find the container with the highest text density.
@@ -523,9 +1279,9 @@ public partial class MarkdownViewModel : ViewModelBase
     // Tags that can never contain readable article text
     private static readonly HashSet<string> SkipTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "script", "style", "noscript", "svg", "iframe", "button", "input",
-        "select", "textarea", "img", "video", "audio", "canvas", "map",
-        "object", "embed", "picture", "source", "track"
+        "script", "style", "noscript", "iframe", "button", "input",
+        "select", "textarea", "video", "audio", "canvas", "map",
+        "object", "embed", "track"
     };
 
     // Semantic HTML5 chrome tags — always site wrapping, never article body
@@ -541,6 +1297,21 @@ public partial class MarkdownViewModel : ViewModelBase
         if (node.NodeType == HtmlNodeType.Element)
         {
             var tag = node.Name.ToLowerInvariant();
+
+            if (tag == "img")
+            {
+                AppendImageMarkdown(node, sb);
+                return;
+            }
+
+            if (tag == "figure")
+            {
+                AppendFigureMarkdown(node, sb);
+                return;
+            }
+
+            if (tag == "svg")
+                return;
 
             // SkipTags are already removed globally before this is called, but guard here too
             if (SkipTags.Contains(tag))
@@ -585,6 +1356,38 @@ public partial class MarkdownViewModel : ViewModelBase
             foreach (var child in node.ChildNodes)
                 ExtractTextRecursive(child, sb);
         }
+    }
+
+    private static void AppendImageMarkdown(HtmlNode img, StringBuilder sb)
+    {
+        var src = img.GetAttributeValue("src", "").Trim();
+        if (string.IsNullOrWhiteSpace(src)) return;
+
+        var alt = NormalizeInlineText(img.GetAttributeValue("alt", ""));
+        if (string.IsNullOrWhiteSpace(alt)) alt = "image";
+
+        sb.AppendLine().AppendLine();
+        sb.Append($"![{EscapeMarkdownAlt(alt)}]({src})");
+        sb.AppendLine().AppendLine();
+    }
+
+    private static void AppendFigureMarkdown(HtmlNode figure, StringBuilder sb)
+    {
+        var img = figure.SelectSingleNode(".//img") ?? figure.SelectSingleNode(".//picture//img");
+        if (img != null)
+            AppendImageMarkdown(img, sb);
+
+        var caption = NormalizeInlineText(figure.SelectSingleNode(".//figcaption")?.InnerText);
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            sb.AppendLine(caption);
+            sb.AppendLine();
+        }
+    }
+
+    private static string EscapeMarkdownAlt(string text)
+    {
+        return text.Replace("[", "\\[").Replace("]", "\\]");
     }
 
     private static string CleanMarkdown(string markdown)

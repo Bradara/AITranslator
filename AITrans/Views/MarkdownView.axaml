@@ -11,6 +11,7 @@
     <!-- Top Controls -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
       <Button x:Name="OpenFileBtn" Content="📂 Open MD" Click="OnOpenFileClick" />
+      <Button x:Name="ImportEbookBtn" Content="📥 Import EPUB/FB2" Click="OnImportEbookClick" />
       <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguage}" Width="150" />
       <Button Content="▶ Translate All" Command="{Binding TranslateCommand}" />
       <Button Content="▶ Selected" Command="{Binding TranslateSelectedCommand}" ToolTip.Tip="Translate only selected rows" />
@@ -73,7 +74,13 @@
                 CanUserResizeColumns="True"
                 GridLinesVisibility="Horizontal"
                 SelectionMode="Extended"
+                PointerPressed="OnParagraphGridPointerPressed"
                 IsReadOnly="False">
+        <DataGrid.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="Delete selected row" Command="{Binding DeleteSelectedCommand}" />
+          </ContextMenu>
+        </DataGrid.ContextMenu>
         <DataGrid.Columns>
           <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="40" IsReadOnly="True" />
           <DataGridTemplateColumn Header="Original" Width="*" MinWidth="120" IsReadOnly="True">

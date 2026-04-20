@@ -454,8 +454,23 @@ public partial class MarkdownPreviewView : UserControl
             ]
         });
 
-        if (file != null)
-            await vm.ExportToEpubAsync(file.Path.LocalPath);
+        if (file == null)
+            return;
+
+        var result = await vm.ExportToEpubAsync(file.Path.LocalPath);
+        if (result == null || result.SkippedImages == 0)
+            return;
+
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select base folder for missing images (optional)",
+            AllowMultiple = false
+        });
+
+        if (folders.Count == 0)
+            return;
+
+        await vm.ExportToEpubAsync(file.Path.LocalPath, new[] { folders[0].Path.LocalPath });
     }
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {

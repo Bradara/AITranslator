@@ -69,14 +69,17 @@ public sealed class EpubExportService
         string? sourcePath,
         string outputPath,
         string? languageName,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? fallbackBaseDirs = null)
     {
         var title = ExtractTitle(markdown, sourcePath);
         var lang = NormalizeLanguage(languageName);
         var baseDir = ResolveBaseDirectory(sourcePath);
+        var baseDirs = BuildBaseDirs(baseDir, fallbackBaseDirs, sourcePath);
 
         var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
-        var bodyHtml = Markdig.Markdown.ToHtml(markdown ?? string.Empty, pipeline);
+        var normalizedMarkdown = NormalizeMarkdownImageLinks(markdown ?? string.Empty);
+        var bodyHtml = Markdig.Markdown.ToHtml(normalizedMarkdown, pipeline);
 
         var doc = new HtmlDocument
         {
@@ -86,7 +89,7 @@ public sealed class EpubExportService
         doc.LoadHtml(BuildHtmlSkeleton(title, lang, bodyHtml));
 
         var warnings = new List<string>();
-        var harvest = await HarvestImagesAsync(doc, baseDir, warnings, ct);
+        var harvest = await HarvestImagesAsync(doc, baseDirs, warnings, ct);
 
         try
         {
@@ -271,7 +274,7 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
 
     private static async Task<ImageHarvestResult> HarvestImagesAsync(
         HtmlDocument doc,
-        string? baseDir,
+        IReadOnlyList<string> baseDirs,
         List<string> warnings,
         CancellationToken ct)
     {
@@ -322,7 +325,7 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
                 }
                 else
                 {
-                    var resolvedPath = ResolveLocalImagePath(src, baseDir);
+                    var resolvedPath = ResolveLocalImagePath(src, baseDirs);
                     if (resolvedPath == null || !File.Exists(resolvedPath))
                     {
                         warnings.Add($"Image not found: {src}");
@@ -421,7 +424,7 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
         return true;
     }
 
-    private static string? ResolveLocalImagePath(string src, string? baseDir)
+    private static string? ResolveLocalImagePath(string src, IReadOnlyList<string> baseDirs)
     {
         var cleaned = StripQueryAndFragment(Uri.UnescapeDataString(src));
 
@@ -429,12 +432,61 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
             return uri.LocalPath;
 
         if (Path.IsPathRooted(cleaned))
-            return cleaned;
+            return File.Exists(cleaned) ? cleaned : null;
 
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return null;
+        foreach (var dir in baseDirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                continue;
+            var candidate = Path.GetFullPath(Path.Combine(dir, cleaned));
+            if (File.Exists(candidate))
+                return candidate;
+        }
 
-        return Path.GetFullPath(Path.Combine(baseDir, cleaned));
+        return null;
+    }
+
+    private static List<string> BuildBaseDirs(string? primary, IReadOnlyList<string>? fallback, string? sourcePath)
+    {
+        var result = new List<string>();
+        AddBaseDir(result, primary);
+        if (fallback != null)
+        {
+            foreach (var dir in fallback)
+                AddBaseDir(result, dir);
+        }
+        AddDerivedDirs(result, sourcePath);
+        return result;
+    }
+
+    private static void AddDerivedDirs(List<string> list, string? sourcePath)
+    {
+        if (list.Count == 0)
+            return;
+
+        var baseName = !string.IsNullOrWhiteSpace(sourcePath)
+            ? Path.GetFileNameWithoutExtension(sourcePath)
+            : string.Empty;
+
+        var suffixes = new List<string> { "images", "image", "img", "assets" };
+        if (!string.IsNullOrWhiteSpace(baseName))
+            suffixes.Add(baseName + "-assets");
+
+        var snapshot = list.ToList();
+        foreach (var dir in snapshot)
+        {
+            foreach (var suffix in suffixes)
+                AddBaseDir(list, Path.Combine(dir, suffix));
+        }
+    }
+
+    private static void AddBaseDir(List<string> list, string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir))
+            return;
+        var full = Path.GetFullPath(dir);
+        if (!list.Any(d => string.Equals(d, full, StringComparison.OrdinalIgnoreCase)))
+            list.Add(full);
     }
 
     private static string StripQueryAndFragment(string value)
@@ -540,5 +592,146 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
             return Path.GetFileNameWithoutExtension(sourcePath) ?? "Document";
 
         return "Document";
+    }
+
+    private static string NormalizeMarkdownImageLinks(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown))
+            return markdown;
+
+        var sb = new StringBuilder(markdown.Length);
+        var i = 0;
+        while (i < markdown.Length)
+        {
+            if (markdown[i] == '!' && i + 1 < markdown.Length && markdown[i + 1] == '[')
+            {
+                var altEnd = FindClosingBracket(markdown, i + 1, '[', ']');
+                if (altEnd > 0 && altEnd + 1 < markdown.Length && markdown[altEnd + 1] == '(')
+                {
+                    var destStart = altEnd + 2;
+                    var destEnd = FindClosingParen(markdown, destStart);
+                    if (destEnd > destStart)
+                    {
+                        var prefix = markdown.Substring(i, altEnd - i + 1);
+                        var content = markdown.Substring(destStart, destEnd - destStart);
+                        var normalized = NormalizeLinkContent(content);
+                        sb.Append(prefix).Append('(').Append(normalized).Append(')');
+                        i = destEnd + 1;
+                        continue;
+                    }
+                }
+            }
+
+            sb.Append(markdown[i]);
+            i++;
+        }
+
+        return sb.ToString();
+    }
+
+    private static int FindClosingBracket(string text, int start, char open, char close)
+    {
+        if (start < 0 || start >= text.Length || text[start] != open)
+            return -1;
+
+        var depth = 0;
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                continue;
+            }
+            if (c == open) depth++;
+            if (c == close)
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int FindClosingParen(string text, int start)
+    {
+        var depth = 1;
+        var inSingle = false;
+        var inDouble = false;
+
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                continue;
+            }
+            if (c == '"' && !inSingle) inDouble = !inDouble;
+            if (c == '\'' && !inDouble) inSingle = !inSingle;
+
+            if (inSingle || inDouble)
+                continue;
+
+            if (c == '(') depth++;
+            if (c == ')')
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static string NormalizeLinkContent(string content)
+    {
+        var trimmed = content.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return content;
+
+        if (trimmed.StartsWith("<") && trimmed.Contains(">"))
+            return trimmed;
+
+        var firstWs = IndexOfWhitespace(trimmed);
+        string url;
+        string title;
+
+        if (firstWs < 0)
+        {
+            url = trimmed;
+            title = "";
+        }
+        else
+        {
+            var rest = trimmed[firstWs..].TrimStart();
+            if (rest.StartsWith("\"") || rest.StartsWith("'") || rest.StartsWith("("))
+            {
+                url = trimmed[..firstWs];
+                title = rest;
+            }
+            else
+            {
+                url = trimmed;
+                title = "";
+            }
+        }
+
+        if (url.Any(char.IsWhiteSpace))
+            url = "<" + url + ">";
+
+        return string.IsNullOrWhiteSpace(title) ? url : url + " " + title;
+    }
+
+    private static int IndexOfWhitespace(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsWhiteSpace(text[i]))
+                return i;
+        }
+        return -1;
     }
 }

@@ -43,7 +43,13 @@
               CanUserResizeColumns="True"
               GridLinesVisibility="Horizontal"
               SelectionMode="Extended"
+              PointerPressed="OnSubtitleGridPointerPressed"
               IsReadOnly="False">
+      <DataGrid.ContextMenu>
+        <ContextMenu>
+          <MenuItem Header="Delete selected row" Command="{Binding DeleteSelectedCommand}" />
+        </ContextMenu>
+      </DataGrid.ContextMenu>
       <DataGrid.Columns>
         <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
         <DataGridTextColumn Header="Time" Binding="{Binding TimeCode}" Width="180" IsReadOnly="True" />
