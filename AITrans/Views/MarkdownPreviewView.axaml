@@ -43,7 +43,14 @@
               Command="{Binding ReadFromSelectionCommand}"
               IsEnabled="{Binding !IsSpeaking}"
               ToolTip.Tip="Position cursor in the editor on the left, then click to read aloud from that point" />
-      <Button Content="⏸ Stop"
+      <Button Content="⏸ Pause"
+              Command="{Binding PauseSpeechCommand}"
+              IsVisible="{Binding IsSpeaking}"
+              IsEnabled="{Binding !IsSpeechPaused}" />
+      <Button Content="▶ Resume"
+              Command="{Binding ResumeSpeechCommand}"
+              IsVisible="{Binding IsSpeechPaused}" />
+      <Button Content="⏹ Stop"
               Command="{Binding StopSpeechCommand}"
               IsVisible="{Binding IsSpeaking}" />
     </StackPanel>

@@ -55,6 +55,9 @@ public partial class MarkdownViewModel : ViewModelBase
     private bool _isSpeaking;
 
     [ObservableProperty]
+    private bool _isSpeechPaused;
+
+    [ObservableProperty]
     private int _progress;
 
     [ObservableProperty]
@@ -1457,6 +1460,7 @@ public partial class MarkdownViewModel : ViewModelBase
         if (texts.Count == 0) return;
 
         IsSpeaking = true;
+        IsSpeechPaused = false;
         _speechCts = new CancellationTokenSource();
         StatusText = fromIndex > 0 ? $"Reading original from paragraph {fromIndex + 1}..." : "Reading original...";
 
@@ -1478,6 +1482,7 @@ public partial class MarkdownViewModel : ViewModelBase
         finally
         {
             IsSpeaking = false;
+            IsSpeechPaused = false;
             _speechCts?.Dispose();
             _speechCts = null;
         }
@@ -1502,6 +1507,7 @@ public partial class MarkdownViewModel : ViewModelBase
         if (texts.Count == 0) return;
 
         IsSpeaking = true;
+        IsSpeechPaused = false;
         _speechCts = new CancellationTokenSource();
         StatusText = fromIndex > 0 ? $"Reading translation from paragraph {fromIndex + 1}..." : "Reading translation...";
 
@@ -1523,9 +1529,28 @@ public partial class MarkdownViewModel : ViewModelBase
         finally
         {
             IsSpeaking = false;
+            IsSpeechPaused = false;
             _speechCts?.Dispose();
             _speechCts = null;
         }
+    }
+
+    [RelayCommand]
+    private async Task PauseSpeechAsync()
+    {
+        if (!IsSpeaking || IsSpeechPaused) return;
+        await _speechService.PauseAsync();
+        IsSpeechPaused = true;
+        StatusText = "Reading paused.";
+    }
+
+    [RelayCommand]
+    private async Task ResumeSpeechAsync()
+    {
+        if (!IsSpeaking || !IsSpeechPaused) return;
+        await _speechService.ResumeAsync();
+        IsSpeechPaused = false;
+        StatusText = "Reading resumed.";
     }
 
     [RelayCommand]
@@ -1533,6 +1558,7 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         _speechCts?.Cancel();
         _speechService.Stop();
+        IsSpeechPaused = false;
     }
 
     /// <summary>

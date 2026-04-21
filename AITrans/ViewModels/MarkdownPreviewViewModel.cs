@@ -43,6 +43,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private bool _isSpeaking;
 
     [ObservableProperty]
+    private bool _isSpeechPaused;
+
+    [ObservableProperty]
     private bool _isExporting;
 
     [ObservableProperty]
@@ -291,6 +294,25 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         _speechCts?.Cancel();
         _speechService.Stop();
+        IsSpeechPaused = false;
+    }
+
+    [RelayCommand]
+    private async Task PauseSpeechAsync()
+    {
+        if (!IsSpeaking || IsSpeechPaused) return;
+        await _speechService.PauseAsync();
+        IsSpeechPaused = true;
+        StatusText = "Reading paused.";
+    }
+
+    [RelayCommand]
+    private async Task ResumeSpeechAsync()
+    {
+        if (!IsSpeaking || !IsSpeechPaused) return;
+        await _speechService.ResumeAsync();
+        IsSpeechPaused = false;
+        StatusText = "Reading resumed.";
     }
 
     [RelayCommand]
@@ -397,6 +419,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         if (texts.Count == 0) return;
 
         IsSpeaking = true;
+        IsSpeechPaused = false;
         _speechCts = new CancellationTokenSource();
         StatusText = startIdx > 0
             ? $"Reading from paragraph {startIdx + 1} of {_paragraphSpans.Count}..."
@@ -421,6 +444,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         finally
         {
             IsSpeaking = false;
+            IsSpeechPaused = false;
             _speechCts?.Dispose();
             _speechCts = null;
         }

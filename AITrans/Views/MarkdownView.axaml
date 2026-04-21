@@ -20,7 +20,9 @@
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <Button Content="🔊 Read Original" Command="{Binding ReadOriginalCommand}" IsEnabled="{Binding !IsSpeaking}" ToolTip.Tip="Read original text from selected row (or from start)" />
       <Button Content="🔊 Read Translation" Command="{Binding ReadTranslationCommand}" IsEnabled="{Binding !IsSpeaking}" ToolTip.Tip="Read translation from selected row (or from start)" />
-      <Button Content="⏸ Stop" Command="{Binding StopSpeechCommand}" IsVisible="{Binding IsSpeaking}" />
+      <Button Content="⏸ Pause" Command="{Binding PauseSpeechCommand}" IsVisible="{Binding IsSpeaking}" IsEnabled="{Binding !IsSpeechPaused}" />
+      <Button Content="▶ Resume" Command="{Binding ResumeSpeechCommand}" IsVisible="{Binding IsSpeechPaused}" />
+      <Button Content="⏹ Stop" Command="{Binding StopSpeechCommand}" IsVisible="{Binding IsSpeaking}" />
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <Button Content="🗄 Cache" Command="{Binding SaveCacheCommand}" ToolTip.Tip="Save current translation session to database" />
       <Button Content="♫ Restore" x:Name="RestoreBtn" Click="OnRestoreCacheClick" IsEnabled="{Binding HasCache}" ToolTip.Tip="Izberi kesh sesiq za vръщане" />
