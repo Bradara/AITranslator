@@ -15,6 +15,7 @@ public enum AiProvider
 public class AppSettings
 {
     public AiProvider Provider { get; set; } = AiProvider.OpenAI;
+    public AiProvider ChatProvider { get; set; } = AiProvider.OpenAI;
 
     public string ThemeName { get; set; } = "System";
 
@@ -34,6 +35,14 @@ public class AppSettings
     public string GeminiModel { get; set; } = "gemini-2.0-flash";
     public string DeepSeekModel { get; set; } = "deepseek-chat";
     public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
+
+    // Chat (AI Assistant) — per-provider model selection
+    public string ChatOpenAiModel { get; set; } = "gpt-4o-mini";
+    public string ChatGitHubCopilotModel { get; set; } = "gpt-4o";
+    public string ChatOpenRouterModel { get; set; } = "google/gemini-2.0-flash-exp:free";
+    public string ChatGeminiModel { get; set; } = "gemini-2.0-flash";
+    public string ChatDeepSeekModel { get; set; } = "deepseek-chat";
+    public string ChatGroqModel { get; set; } = "llama-3.3-70b-versatile";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -129,5 +138,60 @@ public class AppSettings
         AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
         AiProvider.Groq => "https://api.x.ai/v1/chat/completions",
         _ => "https://api.openai.com/v1/chat/completions"
+    };
+
+    // ── Chat (AI Assistant) active settings ─────────────────────────────────
+    // Falls back to the translation provider when the chat-specific key is not set
+    // (e.g. fresh install where ChatProvider JSON field doesn't exist yet).
+
+    /// <summary>
+    /// The provider actually used for chat. When the explicitly selected ChatProvider
+    /// has no API key configured, falls back to the translation Provider.
+    /// </summary>
+    public AiProvider EffectiveChatProvider
+    {
+        get
+        {
+            var chatKey = ChatProvider switch
+            {
+                AiProvider.GitHubCopilot => GitHubCopilotApiKey,
+                AiProvider.OpenRouter    => OpenRouterApiKey,
+                AiProvider.Gemini        => GeminiApiKey,
+                AiProvider.DeepSeek      => DeepSeekApiKey,
+                AiProvider.Groq          => GroqApiKey,
+                _                        => OpenAiApiKey
+            };
+            return string.IsNullOrWhiteSpace(chatKey) ? Provider : ChatProvider;
+        }
+    }
+
+    public string ChatActiveApiKey => EffectiveChatProvider switch
+    {
+        AiProvider.GitHubCopilot => GitHubCopilotApiKey,
+        AiProvider.OpenRouter    => OpenRouterApiKey,
+        AiProvider.Gemini        => GeminiApiKey,
+        AiProvider.DeepSeek      => DeepSeekApiKey,
+        AiProvider.Groq          => GroqApiKey,
+        _                        => OpenAiApiKey
+    };
+
+    public string ChatActiveModel => EffectiveChatProvider switch
+    {
+        AiProvider.GitHubCopilot => ChatGitHubCopilotModel,
+        AiProvider.OpenRouter    => ChatOpenRouterModel,
+        AiProvider.Gemini        => ChatGeminiModel,
+        AiProvider.DeepSeek      => ChatDeepSeekModel,
+        AiProvider.Groq          => ChatGroqModel,
+        _                        => ChatOpenAiModel
+    };
+
+    public string ChatActiveEndpoint => EffectiveChatProvider switch
+    {
+        AiProvider.GitHubCopilot => GitHubCopilotInferenceUrl,
+        AiProvider.OpenRouter    => "https://openrouter.ai/api/v1/chat/completions",
+        AiProvider.Gemini        => "https://generativelanguage.googleapis.com/v1beta/models",
+        AiProvider.DeepSeek      => "https://api.deepseek.com/chat/completions",
+        AiProvider.Groq          => "https://api.x.ai/v1/chat/completions",
+        _                        => "https://api.openai.com/v1/chat/completions"
     };
 }

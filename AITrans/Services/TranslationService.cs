@@ -521,4 +521,121 @@ public class TranslationService
             .GetProperty("text")
             .GetString() ?? "";
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Multi-turn chat with history
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sends a new user message together with the full conversation history
+    /// and returns the assistant's reply.
+    /// </summary>
+    public async Task<string> ChatWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<ChatMessage> history,
+        string userMessage,
+        AppSettings? settings = null,
+        CancellationToken ct = default)
+    {
+        if (settings?.EffectiveChatProvider == AiProvider.Gemini)
+            return await CallGeminiChatWithHistoryAsync(systemPrompt, history, userMessage, settings, ct);
+
+        // Build OpenAI-compatible messages array
+        var messages = new List<object>
+        {
+            new { role = "system", content = systemPrompt }
+        };
+
+        foreach (var msg in history)
+        {
+            messages.Add(new
+            {
+                role = msg.Role == ChatRole.User ? "user" : "assistant",
+                content = msg.Content
+            });
+        }
+
+        messages.Add(new { role = "user", content = userMessage });
+
+        var apiKey   = settings?.ChatActiveApiKey   ?? "";
+        var model    = settings?.ChatActiveModel ?? "";
+        var endpoint = settings?.ChatActiveEndpoint ?? "";
+
+        var requestBody = new
+        {
+            model,
+            messages,
+            temperature = settings?.Temperature ?? 1.0
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var response = await HttpClient.SendAsync(request, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        Debug.WriteLine($"[TranslationService][Chat] {(int)response.StatusCode} {response.StatusCode} — {responseJson}");
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"API error ({(int)response.StatusCode} {response.StatusCode}): {responseJson}");
+
+        using var doc = JsonDocument.Parse(responseJson);
+        return doc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "";
+    }
+
+    private async Task<string> CallGeminiChatWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<ChatMessage> history,
+        string userMessage,
+        AppSettings settings,
+        CancellationToken ct)
+    {
+        var model    = settings.ChatActiveModel;
+        var endpoint = settings.ChatActiveEndpoint.TrimEnd('/');
+        var url      = $"{endpoint}/{model}:generateContent?key={Uri.EscapeDataString(settings.GeminiApiKey)}";
+
+        // Gemini requires alternating user/model turns; merge consecutive same-role messages
+        var contents = new List<object>();
+        foreach (var msg in history)
+        {
+            var geminiRole = msg.Role == ChatRole.User ? "user" : "model";
+            contents.Add(new { role = geminiRole, parts = new[] { new { text = msg.Content } } });
+        }
+        contents.Add(new { role = "user", parts = new[] { new { text = userMessage } } });
+
+        var requestBody = new
+        {
+            system_instruction = new { parts = new[] { new { text = systemPrompt } } },
+            contents,
+            generationConfig = new { temperature = settings.Temperature }
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var response = await HttpClient.SendAsync(request, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        Debug.WriteLine($"[TranslationService][GeminiChat] {(int)response.StatusCode} — {responseJson}");
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"API error ({(int)response.StatusCode} {response.StatusCode}): {responseJson}");
+
+        using var doc = JsonDocument.Parse(responseJson);
+        return doc.RootElement
+            .GetProperty("candidates")[0]
+            .GetProperty("content")
+            .GetProperty("parts")[0]
+            .GetProperty("text")
+            .GetString() ?? "";
+    }
 }

@@ -31,6 +31,30 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
     public bool IsGroq => SelectedProvider == "xAI";
 
+    // ── Chat (AI Assistant) provider ──
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChatOpenAi))]
+    [NotifyPropertyChangedFor(nameof(IsChatGitHubCopilot))]
+    [NotifyPropertyChangedFor(nameof(IsChatOpenRouter))]
+    [NotifyPropertyChangedFor(nameof(IsChatGemini))]
+    [NotifyPropertyChangedFor(nameof(IsChatDeepSeek))]
+    [NotifyPropertyChangedFor(nameof(IsChatGroq))]
+    private string _selectedChatProvider = "OpenAI";
+
+    public bool IsChatOpenAi => SelectedChatProvider == "OpenAI";
+    public bool IsChatGitHubCopilot => SelectedChatProvider == "GitHub Copilot";
+    public bool IsChatOpenRouter => SelectedChatProvider == "OpenRouter";
+    public bool IsChatGemini => SelectedChatProvider == "Gemini";
+    public bool IsChatDeepSeek => SelectedChatProvider == "DeepSeek";
+    public bool IsChatGroq => SelectedChatProvider == "xAI";
+
+    [ObservableProperty] private string _chatOpenAiModel = "gpt-4o-mini";
+    [ObservableProperty] private string _chatGitHubCopilotModel = "gpt-4o";
+    [ObservableProperty] private string _chatOpenRouterModel = "google/gemini-2.0-flash-exp:free";
+    [ObservableProperty] private string _chatGeminiModel = "gemini-2.0-flash";
+    [ObservableProperty] private string _chatDeepSeekModel = "deepseek-chat";
+    [ObservableProperty] private string _chatGroqModel = "llama-3.3-70b-versatile";
+
     [ObservableProperty]
     private string _openAiApiKey = "";
 
@@ -267,6 +291,15 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.Groq => "xAI",
             _ => "OpenAI"
         };
+        SelectedChatProvider = s.ChatProvider switch
+        {
+            AiProvider.GitHubCopilot => "GitHub Copilot",
+            AiProvider.OpenRouter => "OpenRouter",
+            AiProvider.Gemini => "Gemini",
+            AiProvider.DeepSeek => "DeepSeek",
+            AiProvider.Groq => "xAI",
+            _ => "OpenAI"
+        };
         OpenAiApiKey = s.OpenAiApiKey;
         GitHubCopilotApiKey = s.GitHubCopilotApiKey;
         OpenRouterApiKey = s.OpenRouterApiKey;
@@ -279,6 +312,12 @@ public partial class SettingsViewModel : ViewModelBase
         GeminiModel = s.GeminiModel;
         DeepSeekModel = s.DeepSeekModel;
         GroqModel = s.GroqModel;
+        ChatOpenAiModel = s.ChatOpenAiModel;
+        ChatGitHubCopilotModel = s.ChatGitHubCopilotModel;
+        ChatOpenRouterModel = s.ChatOpenRouterModel;
+        ChatGeminiModel = s.ChatGeminiModel;
+        ChatDeepSeekModel = s.ChatDeepSeekModel;
+        ChatGroqModel = s.ChatGroqModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
         // Load GitHub endpoint label from saved URL
         var urlIdx = Array.IndexOf(_ghEndpointUrls, s.GitHubCopilotInferenceUrl);
@@ -471,6 +510,21 @@ public partial class SettingsViewModel : ViewModelBase
         s.DeepSeekModel = DeepSeekModel;
         s.GroqModel = GroqModel;
         s.GroqModels = [.. GroqModels];
+        s.ChatProvider = SelectedChatProvider switch
+        {
+            "GitHub Copilot" => AiProvider.GitHubCopilot,
+            "OpenRouter" => AiProvider.OpenRouter,
+            "Gemini" => AiProvider.Gemini,
+            "DeepSeek" => AiProvider.DeepSeek,
+            "xAI" => AiProvider.Groq,
+            _ => AiProvider.OpenAI
+        };
+        s.ChatOpenAiModel = ChatOpenAiModel;
+        s.ChatGitHubCopilotModel = ChatGitHubCopilotModel;
+        s.ChatOpenRouterModel = ChatOpenRouterModel;
+        s.ChatGeminiModel = ChatGeminiModel;
+        s.ChatDeepSeekModel = ChatDeepSeekModel;
+        s.ChatGroqModel = ChatGroqModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;
         // GitHub Copilot inference endpoint
         var labelIdx = Array.IndexOf(_ghEndpointLabels, GitHubCopilotEndpointLabel);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -24,9 +25,7 @@ public partial class MarkdownPreviewView : UserControl
     private readonly List<Style> _fontSizeStyles = [];
     private int _pendingScrollParagraph = -1;
     private MarkdownPreviewViewModel? _subscribedVm;
-    private ScrollViewer? _rawScroll;
     private ScrollViewer? _previewScroll;
-    private bool _syncingScroll;
     private bool _scrollHooked;
     private int _scrollHookRetryCount;
     private const int MaxScrollHookRetries = 30;
@@ -143,6 +142,10 @@ public partial class MarkdownPreviewView : UserControl
             if (IsVisible)
                 Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
         }
+
+        // Scroll chat to bottom when a new message arrives
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.ChatScrollRequest))
+            Dispatcher.UIThread.Post(ScrollChatToBottom, DispatcherPriority.Background);
     }
 
     private void RestoreOrScrollToPending()
@@ -169,7 +172,7 @@ public partial class MarkdownPreviewView : UserControl
     //    enough content is visible (applies clamped to whatever max is available).
     private void AttemptDeferredScrollRestore(double absY)
     {
-        if (_previewScroll is null || _rawScroll is null)
+        if (_previewScroll is null)
         {
             _pendingScrollY = absY;
             _restoringScroll = true;
@@ -227,15 +230,11 @@ public partial class MarkdownPreviewView : UserControl
         ApplyScrollRestore(Math.Min(y, Math.Max(max, 0)));
     }
 
-    // Sets the preview offset to absY and syncs the raw editor via ratio.
+    // Sets the preview offset to absY.
     private void ApplyScrollRestore(double absY)
     {
-        if (_previewScroll is null || _rawScroll is null || absY < 0) return;
-        _syncingScroll = true;
+        if (_previewScroll is null || absY < 0) return;
         _previewScroll.Offset = new Vector(_previewScroll.Offset.X, absY);
-        var ratio = GetScrollRatio(_previewScroll);
-        SetScrollRatio(_rawScroll, ratio);
-        _syncingScroll = false;
         _restoringScroll = false;
     }
 
@@ -266,9 +265,8 @@ public partial class MarkdownPreviewView : UserControl
     private void TryHookScrollViewers()
     {
         if (_scrollHooked) return;
-        _rawScroll = RawEditor.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
         _previewScroll = FindPreviewScrollViewer();
-        if (_rawScroll == null || _previewScroll == null)
+        if (_previewScroll == null)
         {
             if (_scrollHookRetryCount++ < MaxScrollHookRetries)
                 Dispatcher.UIThread.Post(TryHookScrollViewers, DispatcherPriority.Background);
@@ -276,7 +274,6 @@ public partial class MarkdownPreviewView : UserControl
         }
 
         _scrollHookRetryCount = 0;
-        _rawScroll.ScrollChanged += OnRawScrollChanged;
         _previewScroll.ScrollChanged += OnPreviewScrollChanged;
         _scrollHooked = true;
 
@@ -294,46 +291,19 @@ public partial class MarkdownPreviewView : UserControl
     private void UnhookScrollViewers()
     {
         if (!_scrollHooked) return;
-        if (_rawScroll != null)
-            _rawScroll.ScrollChanged -= OnRawScrollChanged;
         if (_previewScroll != null)
             _previewScroll.ScrollChanged -= OnPreviewScrollChanged;
         _scrollHooked = false;
     }
 
-    private void OnRawScrollChanged(object? sender, ScrollChangedEventArgs e)
-    {
-        if (_syncingScroll) return;
-        if (sender is not ScrollViewer sv || DataContext is not MarkdownPreviewViewModel vm) return;
-        var ratio = GetScrollRatio(sv);
-        SyncScrollToRatio(ratio, sourceIsRaw: true);
-        vm.UpdateLastReadParagraphFromScrollRatio(ratio);
-        // Save the preview's resulting absolute Y (not the raw ratio)
-        if (_restoringScroll || !IsVisible) return;
-        if (_previewScroll is not null)
-            vm.UpdatePreviewScrollY(_previewScroll.Offset.Y);
-    }
-
     private void OnPreviewScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (_syncingScroll) return;
         if (sender is not ScrollViewer sv || DataContext is not MarkdownPreviewViewModel vm) return;
         var ratio = GetScrollRatio(sv);
-        SyncScrollToRatio(ratio, sourceIsRaw: false);
         vm.UpdateLastReadParagraphFromScrollRatio(ratio);
         if (_restoringScroll || !IsVisible) return;
         // Save absolute preview Y — immune to extent differences
         vm.UpdatePreviewScrollY(sv.Offset.Y);
-    }
-    private void SyncScrollToRatio(double ratio, bool? sourceIsRaw = null)
-    {
-        if (_rawScroll == null || _previewScroll == null) return;
-        _syncingScroll = true;
-        if (sourceIsRaw != false)
-            SetScrollRatio(_previewScroll, ratio);
-        if (sourceIsRaw != true)
-            SetScrollRatio(_rawScroll, ratio);
-        _syncingScroll = false;
     }
 
     private static double GetScrollRatio(ScrollViewer sv)
@@ -398,6 +368,138 @@ public partial class MarkdownPreviewView : UserControl
 
     private void OnRawEditorPointerReleased(object? sender, PointerReleasedEventArgs e) => UpdateSelectionInVm();
     private void OnRawEditorKeyUp(object? sender, KeyEventArgs e) => UpdateSelectionInVm();
+
+    private async void OnPasteFromClipboardClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.Clipboard is null) return;
+#pragma warning disable CS0618
+        var text = await topLevel.Clipboard.GetTextAsync();
+#pragma warning restore CS0618
+        if (!string.IsNullOrEmpty(text))
+            vm.ChatInput = text;
+    }
+
+    // ── Quick-action buttons: Translate / Explain / Summarize ───────────────
+    // These operate on the currently selected text in the preview or raw editor.
+    // If ChatInput is non-empty it enriches the prompt as additional instructions.
+
+    private async void OnTranslateClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var text = await GetViewerSelectedTextAsync(vm);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Преведи'.";
+            return;
+        }
+        var extra = vm.ChatInput.Trim();
+        var prompt = string.IsNullOrEmpty(extra)
+            ? $"Преведи на {vm.ChatLanguage}:\n\n{text}"
+            : $"Преведи на {vm.ChatLanguage}:\n\n{text}\n\nДопълнителни инструкции: {extra}";
+        await vm.ExecuteChatActionAsync(prompt);
+    }
+
+    private async void OnExplainClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var text = await GetViewerSelectedTextAsync(vm);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Обясни'.";
+            return;
+        }
+        var extra = vm.ChatInput.Trim();
+        var prompt = string.IsNullOrEmpty(extra)
+            ? $"Обясни следния текст подробно:\n\n{text}"
+            : $"Обясни следния текст подробно:\n\n{text}\n\nДопълнителни инструкции: {extra}";
+        await vm.ExecuteChatActionAsync(prompt);
+    }
+
+    private async void OnSummarizeClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var text = await GetViewerSelectedTextAsync(vm);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Обобщи'.";
+            return;
+        }
+        var extra = vm.ChatInput.Trim();
+        var prompt = string.IsNullOrEmpty(extra)
+            ? $"Обобщи следния текст в 2-3 изречения:\n\n{text}"
+            : $"Обобщи следния текст в 2-3 изречения:\n\n{text}\n\nДопълнителни инструкции: {extra}";
+        await vm.ExecuteChatActionAsync(prompt);
+    }
+
+    /// <summary>
+    /// Returns the selected text from the active view (preview or raw editor).
+    /// In preview mode the clipboard is used as a bridge: the MarkdownScrollViewer
+    /// copies its selection to the clipboard on Ctrl+C, so we trigger that
+    /// programmatically and read back the result.
+    /// </summary>
+    private async Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
+    {
+        // Edit mode — TextBox exposes SelectedText directly.
+        if (vm.IsEditMode)
+        {
+            var sel = RawEditor.SelectedText;
+            return string.IsNullOrEmpty(sel) ? null : sel;
+        }
+
+        // Preview mode — use clipboard bridge.
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.Clipboard is null) return null;
+
+#pragma warning disable CS0618
+        var previousClipboard = await topLevel.Clipboard.GetTextAsync();
+        // Clear so we can detect whether the viewer actually wrote something.
+        await topLevel.Clipboard.SetTextAsync(string.Empty);
+#pragma warning restore CS0618
+
+        // Raise Ctrl+C on the MarkdownScrollViewer to trigger its internal copy logic.
+        MarkViewer.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Source = MarkViewer,
+            Key = Key.C,
+            KeyModifiers = KeyModifiers.Control,
+        });
+
+        // Allow the fire-and-forget SetTextAsync inside MarkdownScrollViewer to complete.
+        await Task.Delay(50);
+
+#pragma warning disable CS0618
+        var selected = await topLevel.Clipboard.GetTextAsync();
+#pragma warning restore CS0618
+
+        if (string.IsNullOrEmpty(selected))
+        {
+            // Nothing was selected — restore the user's previous clipboard content.
+            if (!string.IsNullOrEmpty(previousClipboard))
+                await topLevel.Clipboard.SetTextAsync(previousClipboard);
+            return null;
+        }
+
+        return selected;
+    }
+
+    private void OnChatInputKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || !e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
+        if (DataContext is MarkdownPreviewViewModel vm && vm.SendChatCommand.CanExecute(null))
+        {
+            vm.SendChatCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void ScrollChatToBottom()
+    {
+        ChatScrollViewer.ScrollToEnd();
+    }
+
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MarkdownPreviewViewModel vm) return;

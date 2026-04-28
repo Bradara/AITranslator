@@ -24,7 +24,7 @@ public partial class MainViewModel : ViewModelBase
 
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
-        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService);
+        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
     }
 

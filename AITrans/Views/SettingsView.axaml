@@ -155,6 +155,40 @@
 
                 <Separator Margin="0,4" />
 
+        <!-- ── Chat AI Settings ── -->
+        <TextBlock Text="Chat AI (AI Асистент)" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0" />
+        <StackPanel Spacing="5">
+          <TextBlock Text="Provider" FontWeight="SemiBold" />
+          <ComboBox ItemsSource="{Binding AvailableProviders}" SelectedItem="{Binding SelectedChatProvider}" Width="240" />
+          <TextBlock Text="Ползва API ключа на избрания доставчик от секцията по-горе." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatOpenAi}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding OpenAiModels}" SelectedItem="{Binding ChatOpenAiModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatGitHubCopilot}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding GitHubCopilotModels}" SelectedItem="{Binding ChatGitHubCopilotModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatGemini}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding GeminiModels}" SelectedItem="{Binding ChatGeminiModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatDeepSeek}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding DeepSeekModels}" SelectedItem="{Binding ChatDeepSeekModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatGroq}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding GroqModels}" SelectedItem="{Binding ChatGroqModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatOpenRouter}">
+          <TextBlock Text="Model" />
+          <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding ChatOpenRouterModel}" Width="240" />
+        </StackPanel>
+
+                <Separator Margin="0,4" />
+
         <!-- DeepL -->
         <TextBlock Text="DeepL" FontSize="16" FontWeight="SemiBold" />
         <StackPanel Spacing="4">

@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AITrans.ViewModels"
              xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia"
-             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
              x:Class="AITrans.Views.MarkdownPreviewView"
              x:DataType="vm:MarkdownPreviewViewModel">
 
@@ -68,13 +68,25 @@
                TextWrapping="Wrap" />
 
     <!-- ── Main split layout ───────────────────────────── -->
-    <Grid ColumnDefinitions="9* , 4, 11*">
+    <Grid ColumnDefinitions="6*, 4, 4*">
 
-      <!-- Left: raw markdown editor -->
+      <!-- ════════════════════════════════════════════════
+           LEFT PANEL — Preview / Edit toggle
+           ════════════════════════════════════════════════ -->
       <DockPanel Grid.Column="0">
+
+        <!-- Header row -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="False">
-          <TextBlock DockPanel.Dock="Left" Text="📝 Editor"
-                     FontWeight="SemiBold" VerticalAlignment="Center" />
+          <ToggleButton DockPanel.Dock="Left"
+                        IsChecked="{Binding IsEditMode}"
+                        Padding="6,3"
+                        ToolTip.Tip="Превключи между форматиран изглед и редактор на маркдаун">
+            <Panel>
+              <TextBlock Text="👁 Preview" IsVisible="{Binding !IsEditMode}" />
+              <TextBlock Text="✏ Editor" IsVisible="{Binding IsEditMode}" />
+            </Panel>
+          </ToggleButton>
+
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
             <TextBlock Text="● unsaved"
                        Foreground="Orange" FontSize="11"
@@ -84,25 +96,148 @@
                     ToolTip.Tip="Save to current file; opens Save As dialog if no file is loaded" />
           </StackPanel>
         </DockPanel>
+
+        <!-- ── Formatted Preview (default) ── -->
+        <md:MarkdownScrollViewer x:Name="MarkViewer"
+                                 x:CompileBindings="False"
+                                 Margin="0,0,4,0"
+                                 Markdown="{Binding MarkdownText}"
+                                 SelectionEnabled="True"
+                                 IsVisible="{Binding !IsEditMode}" />
+
+        <!-- ── Raw Markdown Editor (edit mode) ── -->
         <TextBox x:Name="RawEditor"
                  Text="{Binding MarkdownText}"
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
                  FontFamily="Consolas,Menlo,monospace"
                  FontSize="13"
-                 UndoLimit="200" />
+                 UndoLimit="200"
+                 IsVisible="{Binding IsEditMode}" />
+
       </DockPanel>
 
       <GridSplitter Grid.Column="1" Background="Gray" ResizeDirection="Columns"
                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
 
-      <!-- Right: formatted preview -->
-      <md:MarkdownScrollViewer Grid.Column="2"
-                               x:Name="MarkViewer"
-                               x:CompileBindings="False"
-                               Margin="8,0,8,0"
-                               Markdown="{Binding MarkdownText}" />
+      <!-- ════════════════════════════════════════════════
+           RIGHT PANEL — AI Chat
+           ════════════════════════════════════════════════ -->
+      <DockPanel Grid.Column="2" Margin="4,0,0,0">
+
+        <!-- ── Chat header ── -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="False">
+          <TextBlock DockPanel.Dock="Left" Text="🤖 AI Асистент"
+                     FontWeight="SemiBold" VerticalAlignment="Center" />
+          <TextBlock DockPanel.Dock="Left" Margin="8,0,0,0"
+                     Text="{Binding ChatProviderModelDisplay}"
+                     FontSize="10" Opacity="0.55" VerticalAlignment="Center" />
+          <Button DockPanel.Dock="Right"
+                  Content="🗑 Изчисти"
+                  Command="{Binding ClearChatCommand}"
+                  FontSize="11"
+                  ToolTip.Tip="Изтрий цялата чат история" />
+        </DockPanel>
+
+        <!-- ── Chat input + action buttons (docked to bottom) ── -->
+        <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,6,0,0">
+          <TextBox x:Name="ChatInputBox"
+                   Text="{Binding ChatInput}"
+                   Watermark="Въведи текст или задай въпрос... (Ctrl+Enter за изпращане)"
+                   AcceptsReturn="True"
+                   TextWrapping="Wrap"
+                   MinHeight="70"
+                   MaxHeight="150"
+                   FontSize="12"
+                   KeyDown="OnChatInputKeyDown" />
+          <WrapPanel Orientation="Horizontal">
+            <Button x:Name="PasteClipboardBtn"
+                    Content="📋 Клипборд"
+                    Click="OnPasteFromClipboardClick"
+                    FontSize="11" Margin="0,0,4,4"
+                    ToolTip.Tip="Постави текста от клипборда в полето" />
+            <Button Content="✖ Изчисти"
+                    Command="{Binding ClearContextCommand}"
+                    FontSize="11" Margin="0,0,4,4" />
+            <ComboBox ItemsSource="{Binding AvailableLanguages}"
+                      SelectedItem="{Binding ChatLanguage}"
+                      FontSize="11" Margin="0,0,4,4" />
+            <Button Content="🌐 Преведи"
+                    Click="OnTranslateClick"
+                    IsEnabled="{Binding !IsChatBusy}"
+                    FontSize="11" Margin="0,0,4,4"
+                    ToolTip.Tip="Преведи маркирания текст на избрания език" />
+            <Button Content="💡 Обясни"
+                    Click="OnExplainClick"
+                    IsEnabled="{Binding !IsChatBusy}"
+                    FontSize="11" Margin="0,0,4,4"
+                    ToolTip.Tip="Обясни маркирания текст" />
+            <Button Content="📝 Обобщи"
+                    Click="OnSummarizeClick"
+                    IsEnabled="{Binding !IsChatBusy}"
+                    FontSize="11" Margin="0,0,4,4"
+                    ToolTip.Tip="Направи обобщение на маркирания текст" />
+            <Button Content="↵ Изпрати"
+                    Command="{Binding SendChatCommand}"
+                    IsEnabled="{Binding !IsChatBusy}"
+                    FontSize="11" Margin="0,0,0,4"
+                    ToolTip.Tip="Изпрати съобщение (Ctrl+Enter)" />
+          </WrapPanel>
+        </StackPanel>
+
+        <!-- ── Busy indicator ── -->
+        <TextBlock DockPanel.Dock="Bottom"
+                   Text="⏳ AI мисли..."
+                   IsVisible="{Binding IsChatBusy}"
+                   FontSize="11" Opacity="0.7"
+                   Margin="0,2,0,2" />
+
+        <!-- ── Chat history (fills remaining space) ── -->
+        <ScrollViewer x:Name="ChatScrollViewer"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding ChatMessages}"
+                        Margin="0,0,0,4">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Panel Margin="0,0,0,6">
+
+                  <!-- User message — right-aligned -->
+                  <Border IsVisible="{Binding IsUser}"
+                          HorizontalAlignment="Right"
+                          MaxWidth="320"
+                          CornerRadius="10,2,10,10"
+                          Background="#1E88E5"
+                          Padding="10,7">
+                    <SelectableTextBlock Text="{Binding Content}"
+                                         TextWrapping="Wrap"
+                                         FontSize="12"
+                                         Foreground="White" />
+                  </Border>
+
+                  <!-- Assistant message — left-aligned -->
+                  <Border IsVisible="{Binding IsAssistant}"
+                          HorizontalAlignment="Left"
+                          MaxWidth="320"
+                          CornerRadius="2,10,10,10"
+                          Padding="10,7">
+                    <Border.Background>
+                      <SolidColorBrush Color="#33808080" />
+                    </Border.Background>
+                    <SelectableTextBlock Text="{Binding Content}"
+                                         TextWrapping="Wrap"
+                                         FontSize="12" />
+                  </Border>
+
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+      </DockPanel>
 
     </Grid>
   </DockPanel>
 </UserControl>
+
