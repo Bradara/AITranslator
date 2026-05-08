@@ -1,0 +1,229 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AITrans.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             x:Class="AITrans.Views.FlashcardsView"
+             x:DataType="vm:FlashcardsViewModel">
+
+  <DockPanel Margin="10">
+
+    <!-- ══ TOP: Add card form ═══════════════════════════════════════════════ -->
+    <Border DockPanel.Dock="Top" Padding="0,0,0,8" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <StackPanel Spacing="6">
+
+        <!-- Row 1: three text inputs -->
+        <Grid ColumnDefinitions="*,*,*">
+          <TextBox Grid.Column="0" Watermark="Страна 1 – дума / израз"
+                   Text="{Binding NewFrontText}" Margin="0,0,5,0" />
+          <TextBox Grid.Column="1" Watermark="Страна 2 – превод (BG)"
+                   Text="{Binding NewBackText}" Margin="0,0,5,0" />
+          <TextBox Grid.Column="2" Watermark="Страна 3 – употреба / тезаурус"
+                   Text="{Binding NewUsageText}" />
+        </Grid>
+
+        <!-- Row 2: action buttons -->
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="✦ Генерирай с AI"
+                  Command="{Binding GenerateWithAiCommand}"
+                  IsEnabled="{Binding !IsGeneratingAi}"
+                  ToolTip.Tip="{Binding AiModelLabel}" />
+          <TextBlock Text="{Binding AiModelLabel}"
+                     VerticalAlignment="Center" FontSize="11" Opacity="0.55"
+                     IsVisible="{Binding !IsGeneratingAi}" />
+          <Button Content="+ Добави карта"
+                  Command="{Binding AddCardCommand}" />
+          <Button x:Name="ImportCsvBtn"
+                  Content="📥 Импорт CSV"
+                  Click="OnImportCsvClick"
+                  ToolTip.Tip="Импортирай от CSV (разделител ;): front;back;usage" />
+          <Button Content="📋 Всички карти"
+                  Click="OnShowAllCardsClick"
+                  ToolTip.Tip="Отвори списъка с всички карти за преглед и редакция" />
+          <TextBlock Text="{Binding StatusText}"
+                     VerticalAlignment="Center" Opacity="0.7" FontSize="12"
+                     IsVisible="{Binding StatusText,
+                         Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- ══ TTS toolbar ═══════════════════════════════════════════════════════ -->
+    <Border DockPanel.Dock="Bottom" Padding="0,5,0,0" BorderThickness="0,1,0,0"
+            Margin="0,0,0,0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="TTS:" VerticalAlignment="Center" FontSize="12" Opacity="0.65" />
+        <!-- Front-side language -->
+        <TextBlock Text="Чужд:" VerticalAlignment="Center" FontSize="12" />
+        <ComboBox ItemsSource="{Binding AvailableLanguages}"
+                  SelectedItem="{Binding FrontLanguage}"
+                  Width="120" />
+        <!-- Back-side language -->
+        <TextBlock Text="BG/превод:" VerticalAlignment="Center" FontSize="12" />
+        <ComboBox ItemsSource="{Binding AvailableLanguages}"
+                  SelectedItem="{Binding BackLanguage}"
+                  Width="120" />
+        <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,2" />
+        <!-- Speak current side -->
+        <Button Content="🔊 Изговори"
+                Command="{Binding SpeakCurrentSideCommand}"
+                IsEnabled="{Binding !IsSpeaking}"
+                ToolTip.Tip="Изговори текущата страна на картата" />
+        <!-- Auto-play -->
+        <Button Content="▶▶ Авто"
+                Command="{Binding StartAutoPlayCommand}"
+                IsEnabled="{Binding !IsAutoPlaying}"
+                ToolTip.Tip="Автоматично обръщане на всички страни с TTS и преминаване към следваща карта" />
+        <!-- Stop -->
+        <Button Content="⏹ Стоп"
+                Command="{Binding StopSpeechCommand}"
+                IsVisible="{Binding IsSpeaking}"
+                ToolTip.Tip="Спри изговарянето" />
+        <Button Content="⏹ Стоп авто"
+                Command="{Binding StopSpeechCommand}"
+                IsVisible="{Binding IsAutoPlaying}"
+                ToolTip.Tip="Спри автоматичното изговаряне" />
+      </StackPanel>
+    </Border>
+
+    <!-- ══ BOTTOM: Mode selector + navigation ═══════════════════════════════ -->
+    <Border DockPanel.Dock="Bottom" Padding="0,6,0,0" BorderThickness="0,1,0,0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+
+        <!-- Mode radios -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <TextBlock Text="Режим:" VerticalAlignment="Center" />
+          <RadioButton Content="🔄 Обръщане"
+                       IsChecked="{Binding IsFlipMode}"
+                       GroupName="FlashcardMode"
+                       ToolTip.Tip="Преглед — кликни върху картата, за да видиш следващата страна" />
+          <RadioButton Content="🌍 → 🇧🇬 Чужд → BG"
+                       IsChecked="{Binding IsForeignToNativeMode}"
+                       GroupName="FlashcardMode"
+                       ToolTip.Tip="Виждаш думата на чуждия език, въвеждаш превода на български" />
+          <RadioButton Content="🇧🇬 → 🌍 BG → Чужд"
+                       IsChecked="{Binding IsNativeToForeignMode}"
+                       GroupName="FlashcardMode"
+                       ToolTip.Tip="Виждаш думата на български, въвеждаш превода на чуждия език" />
+          <Button Content="🔀 Разбъркай"
+                  Command="{Binding ShuffleCommand}"
+                  ToolTip.Tip="Разбъркай реда на картите" />
+        </StackPanel>
+
+        <!-- Navigation -->
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Button Content="← Предишна" Command="{Binding PreviousCardCommand}"
+                  IsEnabled="{Binding HasCards}" />
+          <TextBlock Text="{Binding CardPositionText}"
+                     VerticalAlignment="Center" FontSize="14" MinWidth="70"
+                     TextAlignment="Center" />
+          <Button Content="Следваща →" Command="{Binding NextCardCommand}"
+                  IsEnabled="{Binding HasCards}" />
+        </StackPanel>
+
+        <!-- Placeholder so layout is symmetric -->
+        <Panel Grid.Column="2" Width="8" />
+      </Grid>
+    </Border>
+
+    <!-- ══ MAIN: Card display area ══════════════════════════════════════════ -->
+    <Grid>
+
+      <!-- Empty state -->
+      <TextBlock IsVisible="{Binding !HasCards}"
+                 Text="Няма карти. Добавете карта с формата горе или импортирайте CSV."
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Opacity="0.5" FontSize="16" TextAlignment="Center" />
+
+      <!-- ── Mode 1: Flip card ── -->
+      <Border IsVisible="{Binding ShowFlipCard}"
+              CornerRadius="12" Padding="40"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="1"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="500" MinHeight="280">
+        <Button Command="{Binding AdvanceSideCommand}"
+                Background="Transparent" BorderThickness="0"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                ToolTip.Tip="Кликни, за да видиш следващата страна">
+          <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+            <TextBlock Text="{Binding CurrentSideLabel}"
+                       FontSize="13" Opacity="0.55"
+                       HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding CurrentSideText}"
+                       FontSize="26" FontWeight="SemiBold"
+                       TextWrapping="Wrap" MaxWidth="440"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+            <TextBlock Text="↻ кликни за обръщане"
+                       FontSize="11" Opacity="0.4"
+                       HorizontalAlignment="Center" Margin="0,8,0,0" />
+          </StackPanel>
+        </Button>
+      </Border>
+
+      <!-- ── Modes 2 & 3: Quiz ── -->
+      <Border IsVisible="{Binding ShowQuizCard}"
+              CornerRadius="12" Padding="40"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="1"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="520" MinHeight="320">
+        <StackPanel Spacing="20" HorizontalAlignment="Center">
+
+          <!-- Prompt -->
+          <StackPanel Spacing="4" HorizontalAlignment="Center">
+            <TextBlock Text="Какъв е преводът?"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding QuizPromptText}"
+                       FontSize="30" FontWeight="Bold"
+                       TextWrapping="Wrap" MaxWidth="440"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+          </StackPanel>
+
+          <!-- Answer input (before submit) -->
+          <StackPanel IsVisible="{Binding !IsAnswerSubmitted}"
+                      Spacing="10" HorizontalAlignment="Center">
+            <TextBox x:Name="AnswerBox"
+                     Text="{Binding UserAnswer}"
+                     Watermark="Въведете превода…"
+                     Width="340" FontSize="16"
+                     KeyDown="OnAnswerBoxKeyDown" />
+            <Button Content="✔ Провери отговора"
+                    Command="{Binding SubmitAnswerCommand}"
+                    HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- Feedback (after submit) -->
+          <StackPanel IsVisible="{Binding IsAnswerSubmitted}"
+                      Spacing="12" HorizontalAlignment="Center">
+            <TextBlock Text="{Binding AnswerFeedback}"
+                       FontSize="18" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       TextWrapping="Wrap" MaxWidth="440"
+                       Classes.correct="{Binding IsAnswerCorrect}">
+              <TextBlock.Styles>
+                <Style Selector="TextBlock.correct">
+                  <Setter Property="Foreground" Value="#2ECC71" />
+                </Style>
+              </TextBlock.Styles>
+            </TextBlock>
+            <Button Content="Следваща карта →"
+                    Command="{Binding NextCardCommand}"
+                    HorizontalAlignment="Center" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+    </Grid>
+
+  </DockPanel>
+</UserControl>

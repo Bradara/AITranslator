@@ -21,5 +21,8 @@
     <TabItem Header="Settings">
       <views:SettingsView DataContext="{Binding SettingsTab}" />
     </TabItem>
+    <TabItem Header="🃏 Flashcards">
+      <views:FlashcardsView DataContext="{Binding FlashcardsTab}" />
+    </TabItem>
   </TabControl>
 </UserControl>

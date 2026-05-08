@@ -92,6 +92,15 @@ public class CacheService
                 file_path TEXT NOT NULL PRIMARY KEY,
                 last_opened_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS flashcards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                front_text TEXT NOT NULL DEFAULT '',
+                back_text TEXT NOT NULL DEFAULT '',
+                usage_text TEXT NOT NULL DEFAULT '',
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                wrong_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
     }
@@ -412,6 +421,80 @@ public class CacheService
     {
         using var conn = Open();
         Execute(conn, "DELETE FROM preview_file_history WHERE file_path = @fp", ("@fp", filePath));
+    }
+
+    // ─── Flashcards ───────────────────────────────────────────────────────────
+
+    public List<FlashCard> GetAllFlashCards()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, front_text, back_text, usage_text, correct_count, wrong_count, created_at
+            FROM flashcards ORDER BY id
+            """;
+        using var r = cmd.ExecuteReader();
+        var list = new List<FlashCard>();
+        while (r.Read())
+        {
+            list.Add(new FlashCard
+            {
+                Id           = r.GetInt32(0),
+                FrontText    = r.GetString(1),
+                BackText     = r.GetString(2),
+                UsageText    = r.GetString(3),
+                CorrectCount = r.GetInt32(4),
+                WrongCount   = r.GetInt32(5),
+                CreatedAt    = DateTime.Parse(r.GetString(6))
+            });
+        }
+        return list;
+    }
+
+    /// <summary>Inserts a new card and returns its auto-generated id.</summary>
+    public int SaveFlashCard(FlashCard card)
+    {
+        using var conn = Open();
+        Execute(conn,
+            """
+            INSERT INTO flashcards (front_text, back_text, usage_text, correct_count, wrong_count, created_at)
+            VALUES (@ft, @bt, @ut, @cc, @wc, @ca)
+            """,
+            ("@ft", card.FrontText), ("@bt", card.BackText), ("@ut", card.UsageText),
+            ("@cc", card.CorrectCount), ("@wc", card.WrongCount),
+            ("@ca", card.CreatedAt.ToString("o")));
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT last_insert_rowid()";
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    public void DeleteFlashCard(int id)
+    {
+        using var conn = Open();
+        Execute(conn, "DELETE FROM flashcards WHERE id = @id", ("@id", id));
+    }
+
+    public void UpdateFlashCardStats(int id, bool correct)
+    {
+        using var conn = Open();
+        if (correct)
+            Execute(conn, "UPDATE flashcards SET correct_count = correct_count + 1 WHERE id = @id", ("@id", id));
+        else
+            Execute(conn, "UPDATE flashcards SET wrong_count = wrong_count + 1 WHERE id = @id", ("@id", id));
+    }
+
+    public void UpdateFlashCard(FlashCard card)
+    {
+        using var conn = Open();
+        Execute(conn,
+            """
+            UPDATE flashcards
+            SET front_text = @ft, back_text = @bt, usage_text = @ut
+            WHERE id = @id
+            """,
+            ("@ft", card.FrontText), ("@bt", card.BackText),
+            ("@ut", card.UsageText), ("@id", card.Id));
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────

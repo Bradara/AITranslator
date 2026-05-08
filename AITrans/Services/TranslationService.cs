@@ -341,6 +341,33 @@ public class TranslationService
             settings, ct);
     }
 
+    /// <summary>
+    /// Sends a custom system prompt and user message using the active translation provider settings.
+    /// </summary>
+    public async Task<string> CallAiAsync(
+        string systemPrompt, string userMessage,
+        AppSettings settings, CancellationToken ct = default)
+    {
+        var model    = GetNextModel(settings);
+        var apiKey   = settings.ActiveApiKey;
+        var endpoint = settings.ActiveEndpoint;
+        return await CallApiWithRetryAsync(systemPrompt, userMessage, apiKey, model, endpoint, settings, ct);
+    }
+
+    /// <summary>
+    /// Sends a custom system prompt and user message using the active CHAT provider settings
+    /// (same provider used by the Preview / AI Assistant tab).
+    /// </summary>
+    public async Task<string> CallChatAiAsync(
+        string systemPrompt, string userMessage,
+        AppSettings settings, CancellationToken ct = default)
+    {
+        var apiKey   = settings.ChatActiveApiKey;
+        var model    = settings.ChatActiveModel;
+        var endpoint = settings.ChatActiveEndpoint;
+        return await CallApiWithRetryAsync(systemPrompt, userMessage, apiKey, model, endpoint, settings, ct);
+    }
+
     public async Task<List<string>> TranslateSubtitleBatchAsync(
         List<string> texts, string targetLanguage, string apiKey, string model, string endpoint,
         int batchSize = 30, int delayBetweenRequestsMs = 0,

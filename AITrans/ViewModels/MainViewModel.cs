@@ -11,6 +11,7 @@ public partial class MainViewModel : ViewModelBase
     public MarkdownViewModel MarkdownTab { get; }
     public MarkdownPreviewViewModel MarkdownPreviewTab { get; }
     public SettingsViewModel SettingsTab { get; }
+    public FlashcardsViewModel FlashcardsTab { get; }
 
     public MainViewModel(SettingsService settingsService, ThemeService themeService)
     {
@@ -21,11 +22,13 @@ public partial class MainViewModel : ViewModelBase
         var cacheService = new CacheService();
         var epubExportService = new EpubExportService();
         var ebookImportService = new EbookImportService();
+        var flashcardService = new FlashcardService(cacheService);
 
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
+        FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService);
     }
 
     public void SaveState()
