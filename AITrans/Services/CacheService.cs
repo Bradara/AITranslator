@@ -103,6 +103,15 @@ public class CacheService
             );
             """;
         cmd.ExecuteNonQuery();
+
+        // Migrate: add rating column if it doesn't exist yet (safe for existing databases)
+        try
+        {
+            using var migCmd = conn.CreateCommand();
+            migCmd.CommandText = "ALTER TABLE flashcards ADD COLUMN rating INTEGER NOT NULL DEFAULT 0";
+            migCmd.ExecuteNonQuery();
+        }
+        catch { /* column already exists – ignore */ }
     }
 
     // ─── Subtitles ────────────────────────────────────────────────────────────
@@ -430,7 +439,7 @@ public class CacheService
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, front_text, back_text, usage_text, correct_count, wrong_count, created_at
+            SELECT id, front_text, back_text, usage_text, correct_count, wrong_count, created_at, rating
             FROM flashcards ORDER BY id
             """;
         using var r = cmd.ExecuteReader();
@@ -445,7 +454,8 @@ public class CacheService
                 UsageText    = r.GetString(3),
                 CorrectCount = r.GetInt32(4),
                 WrongCount   = r.GetInt32(5),
-                CreatedAt    = DateTime.Parse(r.GetString(6))
+                CreatedAt    = DateTime.Parse(r.GetString(6)),
+                Rating       = (CardRating)r.GetInt32(7)
             });
         }
         return list;
@@ -457,12 +467,12 @@ public class CacheService
         using var conn = Open();
         Execute(conn,
             """
-            INSERT INTO flashcards (front_text, back_text, usage_text, correct_count, wrong_count, created_at)
-            VALUES (@ft, @bt, @ut, @cc, @wc, @ca)
+            INSERT INTO flashcards (front_text, back_text, usage_text, correct_count, wrong_count, created_at, rating)
+            VALUES (@ft, @bt, @ut, @cc, @wc, @ca, @rt)
             """,
             ("@ft", card.FrontText), ("@bt", card.BackText), ("@ut", card.UsageText),
             ("@cc", card.CorrectCount), ("@wc", card.WrongCount),
-            ("@ca", card.CreatedAt.ToString("o")));
+            ("@ca", card.CreatedAt.ToString("o")), ("@rt", (int)card.Rating));
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT last_insert_rowid()";
@@ -495,6 +505,13 @@ public class CacheService
             """,
             ("@ft", card.FrontText), ("@bt", card.BackText),
             ("@ut", card.UsageText), ("@id", card.Id));
+    }
+
+    public void UpdateFlashCardRating(int id, CardRating rating)
+    {
+        using var conn = Open();
+        Execute(conn, "UPDATE flashcards SET rating = @rt WHERE id = @id",
+            ("@rt", (int)rating), ("@id", id));
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────

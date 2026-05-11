@@ -42,6 +42,12 @@ public class FlashcardService
         return Task.CompletedTask;
     }
 
+    public Task UpdateRatingAsync(int id, CardRating rating)
+    {
+        _cacheService.UpdateFlashCardRating(id, rating);
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Parses a semicolon-delimited CSV file with three columns:
     /// front;back;usage

@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AITrans.ViewModels"
+             xmlns:models="using:AITrans.Models"
              mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
              x:Class="AITrans.Views.FlashcardsView"
              x:DataType="vm:FlashcardsViewModel">
@@ -89,50 +90,76 @@
       </StackPanel>
     </Border>
 
-    <!-- ══ BOTTOM: Mode selector + navigation ═══════════════════════════════ -->
+    <!-- ══ BOTTOM: Mode selector ═══════════════════════════════════════════ -->
     <Border DockPanel.Dock="Bottom" Padding="0,6,0,0" BorderThickness="0,1,0,0"
             BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
-      <Grid ColumnDefinitions="Auto,*,Auto">
-
-        <!-- Mode radios -->
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-          <TextBlock Text="Режим:" VerticalAlignment="Center" />
-          <RadioButton Content="🔄 Обръщане"
-                       IsChecked="{Binding IsFlipMode}"
-                       GroupName="FlashcardMode"
-                       ToolTip.Tip="Преглед — кликни върху картата, за да видиш следващата страна" />
-          <RadioButton Content="🌍 → 🇧🇬 Чужд → BG"
-                       IsChecked="{Binding IsForeignToNativeMode}"
-                       GroupName="FlashcardMode"
-                       ToolTip.Tip="Виждаш думата на чуждия език, въвеждаш превода на български" />
-          <RadioButton Content="🇧🇬 → 🌍 BG → Чужд"
-                       IsChecked="{Binding IsNativeToForeignMode}"
-                       GroupName="FlashcardMode"
-                       ToolTip.Tip="Виждаш думата на български, въвеждаш превода на чуждия език" />
-          <Button Content="🔀 Разбъркай"
-                  Command="{Binding ShuffleCommand}"
-                  ToolTip.Tip="Разбъркай реда на картите" />
-        </StackPanel>
-
-        <!-- Navigation -->
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
-          <Button Content="← Предишна" Command="{Binding PreviousCardCommand}"
-                  IsEnabled="{Binding HasCards}" />
-          <TextBlock Text="{Binding CardPositionText}"
-                     VerticalAlignment="Center" FontSize="14" MinWidth="70"
-                     TextAlignment="Center" />
-          <Button Content="Следваща →" Command="{Binding NextCardCommand}"
-                  IsEnabled="{Binding HasCards}" />
-        </StackPanel>
-
-        <!-- Placeholder so layout is symmetric -->
-        <Panel Grid.Column="2" Width="8" />
-      </Grid>
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <TextBlock Text="Режим:" VerticalAlignment="Center" />
+        <RadioButton Content="🔄 Обръщане"
+                     IsChecked="{Binding IsFlipMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Преглед — кликни върху картата, за да видиш следващата страна" />
+        <RadioButton Content="✏️ Въвеждане"
+                     IsChecked="{Binding IsForeignToNativeMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Виждаш думата, въвеждаш превода" />
+        <RadioButton Content="☑ Избор"
+                     IsChecked="{Binding IsMultipleChoiceMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Виждаш думата на чуждия език, избираш превода от 4 варианта" />
+        <RadioButton Content="🔊 Слушане"
+                     IsChecked="{Binding IsListenMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Чуваш думата, въвеждаш превода" />
+        <RadioButton Content="🔊☑ Слушане+Избор"
+                     IsChecked="{Binding IsListenChoiceMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Чуваш думата, избираш превода от 4 варианта" />
+        <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="0,4" />
+        <CheckBox Content="🔄 BG → Чужд"
+                  IsChecked="{Binding ReverseQuizDirection}"
+                  ToolTip.Tip="Обърни посоката: чуваш/виждаш BG превода, въвеждаш думата на чуждия език"
+                  VerticalAlignment="Center" />
+        <Button Content="🔀 Разбъркай"
+                Command="{Binding ShuffleCommand}"
+                ToolTip.Tip="Разбъркай реда на картите" />
+      </StackPanel>
     </Border>
 
     <!-- ══ MAIN: Card display area ══════════════════════════════════════════ -->
-    <Grid>
+    <Grid RowDefinitions="Auto,*">
+
+      <!-- Counter row -->
+      <StackPanel Grid.Row="0" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="12" Margin="0,6,0,4">
+        <TextBlock Text="{Binding CardPositionText}"
+                   IsVisible="{Binding HasCards}"
+                   FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <TextBlock IsVisible="{Binding HasCards}"
+                   VerticalAlignment="Center" FontSize="13" Opacity="0.55">
+          <TextBlock.Text>
+            <MultiBinding StringFormat="(✅ заучени: {0})">
+              <Binding Path="LearnedCount" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
+      </StackPanel>
+
+      <!-- Card + side-nav buttons -->
+      <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto">
+
+        <!-- Left arrow -->
+        <Button Grid.Column="0"
+                Content="&#x276E;"
+                FontSize="36"
+                Command="{Binding PreviousCardCommand}"
+                IsEnabled="{Binding HasCards}"
+                VerticalAlignment="Center"
+                Background="Transparent" BorderThickness="0"
+                Padding="12,8"
+                ToolTip.Tip="Предишна карта" />
+
+        <!-- Inner card grid -->
+        <Grid Grid.Column="1">
 
       <!-- Empty state -->
       <TextBlock IsVisible="{Binding !HasCards}"
@@ -148,24 +175,36 @@
               BorderThickness="1"
               HorizontalAlignment="Center" VerticalAlignment="Center"
               MinWidth="500" MinHeight="280">
-        <Button Command="{Binding AdvanceSideCommand}"
-                Background="Transparent" BorderThickness="0"
-                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                ToolTip.Tip="Кликни, за да видиш следващата страна">
-          <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
-            <TextBlock Text="{Binding CurrentSideLabel}"
-                       FontSize="13" Opacity="0.55"
-                       HorizontalAlignment="Center" />
-            <TextBlock Text="{Binding CurrentSideText}"
-                       FontSize="26" FontWeight="SemiBold"
-                       TextWrapping="Wrap" MaxWidth="440"
-                       HorizontalAlignment="Center" TextAlignment="Center" />
-            <TextBlock Text="↻ кликни за обръщане"
-                       FontSize="11" Opacity="0.4"
-                       HorizontalAlignment="Center" Margin="0,8,0,0" />
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+          <!-- Clickable card face -->
+          <Button Command="{Binding AdvanceSideCommand}"
+                  Background="Transparent" BorderThickness="0"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                  ToolTip.Tip="Кликни, за да видиш следващата страна">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+              <TextBlock Text="{Binding CurrentSideLabel}"
+                         FontSize="13" Opacity="0.55"
+                         HorizontalAlignment="Center" />
+              <TextBlock Text="{Binding CurrentSideText}"
+                         FontSize="26" FontWeight="SemiBold"
+                         TextWrapping="Wrap" MaxWidth="440"
+                         HorizontalAlignment="Center" TextAlignment="Center" />
+              <TextBlock Text="↻ кликни за обръщане"
+                         FontSize="11" Opacity="0.4"
+                         HorizontalAlignment="Center" Margin="0,8,0,0" />
+            </StackPanel>
+          </Button>
+          <!-- Rating buttons — visible after at least one flip -->
+          <StackPanel IsVisible="{Binding ShowFlipRating}"
+                      Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+            <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
           </StackPanel>
-        </Button>
+        </StackPanel>
       </Border>
 
       <!-- ── Modes 2 & 3: Quiz ── -->
@@ -180,7 +219,11 @@
 
           <!-- Prompt -->
           <StackPanel Spacing="4" HorizontalAlignment="Center">
-            <TextBlock Text="Какъв е преводът?"
+            <TextBlock Text="Какъв е преводът на български?"
+                       IsVisible="{Binding !ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="Какъв е преводът на чуждия език?"
+                       IsVisible="{Binding ReverseQuizDirection}"
                        FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
             <TextBlock Text="{Binding QuizPromptText}"
                        FontSize="30" FontWeight="Bold"
@@ -201,7 +244,7 @@
                     HorizontalAlignment="Center" />
           </StackPanel>
 
-          <!-- Feedback (after submit) -->
+          <!-- Feedback (after submit) - quiz card -->
           <StackPanel IsVisible="{Binding IsAnswerSubmitted}"
                       Spacing="12" HorizontalAlignment="Center">
             <TextBlock Text="{Binding AnswerFeedback}"
@@ -215,15 +258,234 @@
                 </Style>
               </TextBlock.Styles>
             </TextBlock>
-            <Button Content="Следваща карта →"
-                    Command="{Binding NextCardCommand}"
-                    HorizontalAlignment="Center" />
+            <!-- Rating buttons replace "next card" in quiz mode -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+              <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
+              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
+              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
+              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
+              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+            </StackPanel>
           </StackPanel>
 
         </StackPanel>
       </Border>
 
-    </Grid>
+      <!-- ── Mode 4: Multiple-choice ── -->
+      <Border IsVisible="{Binding ShowMultipleChoice}"
+              CornerRadius="12" Padding="40"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="1"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="520">
+        <StackPanel Spacing="20" HorizontalAlignment="Center">
+
+          <!-- Question -->
+          <StackPanel Spacing="4" HorizontalAlignment="Center">
+            <TextBlock Text="Какъв е преводът на български?"
+                       IsVisible="{Binding !ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="Какъв е преводът на чуждия език?"
+                       IsVisible="{Binding ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding QuizPromptText}"
+                       FontSize="30" FontWeight="Bold"
+                       TextWrapping="Wrap" MaxWidth="440"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+          </StackPanel>
+
+          <!-- 4 choice buttons -->
+          <ItemsControl ItemsSource="{Binding Choices}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="models:ChoiceOption">
+                <Button HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Margin="0,4"
+                        MinWidth="340"
+                        FontSize="16"
+                        Command="{Binding $parent[UserControl].((vm:FlashcardsViewModel)DataContext).SelectChoiceCommand}"
+                        CommandParameter="{Binding}"
+                        Content="{Binding Text}"
+                        Classes.correct="{Binding IsCorrectState}"
+                        Classes.wrong="{Binding IsWrongState}">
+                  <Button.Styles>
+                    <Style Selector="Button.correct">
+                      <Setter Property="Background" Value="#2ECC71" />
+                      <Setter Property="Foreground" Value="White" />
+                    </Style>
+                    <Style Selector="Button.wrong">
+                      <Setter Property="Background" Value="#E74C3C" />
+                      <Setter Property="Foreground" Value="White" />
+                    </Style>
+                  </Button.Styles>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- Rating buttons shown after answering MC -->
+          <StackPanel IsVisible="{Binding IsMcAnswerSubmitted}"
+                      Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+            <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+      <!-- ── Mode 4: Listen ── -->
+      <Border IsVisible="{Binding ShowListenCard}"
+              CornerRadius="12" Padding="40"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="1"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="520" MinHeight="320">
+        <StackPanel Spacing="20" HorizontalAlignment="Center">
+
+          <!-- Prompt icon — click to replay -->          <StackPanel Spacing="8" HorizontalAlignment="Center">
+            <Button Command="{Binding SpeakListenPromptCommand}"
+                    Background="Transparent" BorderThickness="0"
+                    HorizontalAlignment="Center"
+                    Cursor="Hand"
+                    ToolTip.Tip="Кликни за повторно произнасяне">
+              <TextBlock Text="🔊" FontSize="48" />
+            </Button>
+            <TextBlock Text="Какъв е преводът на български?"
+                       IsVisible="{Binding !ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="Какъв е преводът на чуждия език?"
+                       IsVisible="{Binding ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- Answer input (before submit) -->
+          <StackPanel IsVisible="{Binding !IsAnswerSubmitted}"
+                      Spacing="10" HorizontalAlignment="Center">
+            <TextBox Text="{Binding UserAnswer}"
+                     Watermark="Въведете превода…"
+                     Width="340" FontSize="16"
+                     KeyDown="OnAnswerBoxKeyDown" />
+            <Button Content="✔ Провери отговора"
+                    Command="{Binding SubmitAnswerCommand}"
+                    HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- Feedback (after submit) - listen card -->
+          <StackPanel IsVisible="{Binding IsAnswerSubmitted}"
+                      Spacing="12" HorizontalAlignment="Center">
+            <TextBlock Text="{Binding AnswerFeedback}"
+                       FontSize="18" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       TextWrapping="Wrap" MaxWidth="440"
+                       Classes.correct="{Binding IsAnswerCorrect}">
+              <TextBlock.Styles>
+                <Style Selector="TextBlock.correct">
+                  <Setter Property="Foreground" Value="#2ECC71" />
+                </Style>
+              </TextBlock.Styles>
+            </TextBlock>
+            <!-- Rating buttons replace "next card" in listen mode -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+              <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
+              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
+              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
+              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
+              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+            </StackPanel>
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+      <!-- ── Mode 5: Listen + Choice ── -->
+      <Border IsVisible="{Binding ShowListenChoice}"
+              CornerRadius="12" Padding="40"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="1"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              MinWidth="520">
+        <StackPanel Spacing="20" HorizontalAlignment="Center">
+
+          <!-- Clickable speaker icon -->
+          <StackPanel Spacing="8" HorizontalAlignment="Center">
+            <Button Command="{Binding SpeakListenPromptCommand}"
+                    Background="Transparent" BorderThickness="0"
+                    HorizontalAlignment="Center"
+                    Cursor="Hand"
+                    ToolTip.Tip="Кликни за повторно произнасяне">
+              <TextBlock Text="🔊" FontSize="48" />
+            </Button>
+            <TextBlock Text="Какъв е преводът на български?"
+                       IsVisible="{Binding !ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+            <TextBlock Text="Какъв е преводът на чуждия език?"
+                       IsVisible="{Binding ReverseQuizDirection}"
+                       FontSize="13" Opacity="0.55" HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- 4 choice buttons -->
+          <ItemsControl ItemsSource="{Binding Choices}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="models:ChoiceOption">
+                <Button HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Margin="0,4"
+                        MinWidth="340"
+                        FontSize="16"
+                        Command="{Binding $parent[UserControl].((vm:FlashcardsViewModel)DataContext).SelectChoiceCommand}"
+                        CommandParameter="{Binding}"
+                        Content="{Binding Text}"
+                        Classes.correct="{Binding IsCorrectState}"
+                        Classes.wrong="{Binding IsWrongState}">
+                  <Button.Styles>
+                    <Style Selector="Button.correct">
+                      <Setter Property="Background" Value="#2ECC71" />
+                      <Setter Property="Foreground" Value="White" />
+                    </Style>
+                    <Style Selector="Button.wrong">
+                      <Setter Property="Background" Value="#E74C3C" />
+                      <Setter Property="Foreground" Value="White" />
+                    </Style>
+                  </Button.Styles>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- Rating buttons shown after answering ListenChoice -->
+          <StackPanel IsVisible="{Binding IsMcAnswerSubmitted}"
+                      Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+            <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+          </StackPanel>
+
+        </StackPanel>
+      </Border>
+
+        </Grid><!-- end inner card grid -->
+
+        <!-- Right arrow -->
+        <Button Grid.Column="2"
+                Content="&#x276F;"
+                FontSize="36"
+                Command="{Binding NextCardCommand}"
+                IsEnabled="{Binding HasCards}"
+                VerticalAlignment="Center"
+                Background="Transparent" BorderThickness="0"
+                Padding="12,8"
+                ToolTip.Tip="Следваща карта" />
+
+      </Grid><!-- end card + side-nav -->
+    </Grid><!-- end main area -->
 
   </DockPanel>
 </UserControl>

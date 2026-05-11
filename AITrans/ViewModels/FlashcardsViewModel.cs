@@ -14,8 +14,10 @@ namespace AITrans.ViewModels;
 public enum FlashcardMode
 {
     Flip,             // Mode 1 – cycle through all three sides
-    ForeignToNative,  // Mode 2 – show foreign word, type Bulgarian translation
-    NativeToForeign   // Mode 3 – show Bulgarian word, type foreign translation
+    ForeignToNative,  // Mode 2 – type the translation (direction controlled by ReverseQuizDirection)
+    MultipleChoice,   // Mode 3 – show foreign word, pick translation from 4 options
+    Listen,           // Mode 4 – hear the word via TTS, type the translation
+    ListenChoice      // Mode 5 – hear the word via TTS, pick translation from 4 options
 }
 
 public partial class FlashcardsViewModel : ViewModelBase
@@ -67,17 +69,47 @@ public partial class FlashcardsViewModel : ViewModelBase
         set { if (value) Mode = FlashcardMode.ForeignToNative; }
     }
 
-    public bool IsNativeToForeignMode
+    public bool IsMultipleChoiceMode
     {
-        get => Mode == FlashcardMode.NativeToForeign;
-        set { if (value) Mode = FlashcardMode.NativeToForeign; }
+        get => Mode == FlashcardMode.MultipleChoice;
+        set { if (value) Mode = FlashcardMode.MultipleChoice; }
     }
 
-    public bool IsQuizMode => Mode is FlashcardMode.ForeignToNative or FlashcardMode.NativeToForeign;
+    public bool IsListenMode
+    {
+        get => Mode == FlashcardMode.Listen;
+        set { if (value) Mode = FlashcardMode.Listen; }
+    }
+
+    public bool IsListenChoiceMode
+    {
+        get => Mode == FlashcardMode.ListenChoice;
+        set { if (value) Mode = FlashcardMode.ListenChoice; }
+    }
+
+    /// <summary>True for modes that use a text-answer quiz card (type-in).</summary>
+    public bool IsQuizMode => Mode is FlashcardMode.ForeignToNative or FlashcardMode.Listen;
+
+    /// <summary>True for modes that use multiple-choice buttons (MC or ListenChoice).</summary>
+    public bool IsChoiceMode => Mode is FlashcardMode.MultipleChoice or FlashcardMode.ListenChoice;
+
+    /// <summary>When true the quiz prompt shows BackText (BG) and expects FrontText (foreign).</summary>
+    [ObservableProperty]
+    private bool _reverseQuizDirection;
 
     // Combined visibility helpers (mode + HasCards) to avoid duplicate IsVisible in AXAML
-    public bool ShowFlipCard  => HasCards && Mode == FlashcardMode.Flip;
-    public bool ShowQuizCard  => HasCards && IsQuizMode;
+    public bool ShowFlipCard       => HasCards && Mode == FlashcardMode.Flip;
+    public bool ShowQuizCard       => HasCards && Mode == FlashcardMode.ForeignToNative;
+    public bool ShowMultipleChoice => HasCards && Mode == FlashcardMode.MultipleChoice;
+    public bool ShowListenCard     => HasCards && Mode == FlashcardMode.Listen;
+    public bool ShowListenChoice   => HasCards && Mode == FlashcardMode.ListenChoice;
+
+    /// <summary>Show rating buttons in flip mode after the back has been revealed at least once.</summary>
+    public bool ShowFlipRating     => Mode == FlashcardMode.Flip && HasCards && CurrentSide >= 1;
+
+    /// <summary>Number of cards excluded from the deck because they are marked Learned.</summary>
+    public int LearnedCount        => Cards.Count(c => c.Rating == CardRating.Learned);
+    public int ActiveCount         => QuizDeck.Count;
 
     // ── Add-card fields ───────────────────────────────────────────────────────
 
@@ -110,6 +142,14 @@ public partial class FlashcardsViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _isAnswerCorrect;
+
+    // ── Multiple-choice state ─────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private ObservableCollection<ChoiceOption> _choices = [];
+
+    [ObservableProperty]
+    private bool _isMcAnswerSubmitted;
 
     // ── TTS state ─────────────────────────────────────────────────────────────
 
@@ -158,19 +198,11 @@ public partial class FlashcardsViewModel : ViewModelBase
         _ => ""
     };
 
-    public string QuizPromptText => CurrentCard == null ? "" : Mode switch
-    {
-        FlashcardMode.ForeignToNative => CurrentCard.FrontText,
-        FlashcardMode.NativeToForeign => CurrentCard.BackText,
-        _ => ""
-    };
+    public string QuizPromptText  => CurrentCard == null ? "" :
+        ReverseQuizDirection ? CurrentCard.BackText : CurrentCard.FrontText;
 
-    public string QuizCorrectAnswer => CurrentCard == null ? "" : Mode switch
-    {
-        FlashcardMode.ForeignToNative => CurrentCard.BackText,
-        FlashcardMode.NativeToForeign => CurrentCard.FrontText,
-        _ => ""
-    };
+    public string QuizCorrectAnswer => CurrentCard == null ? "" :
+        ReverseQuizDirection ? CurrentCard.FrontText : CurrentCard.BackText;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -210,12 +242,49 @@ public partial class FlashcardsViewModel : ViewModelBase
 
     private void BuildQuizDeck()
     {
-        QuizDeck = Mode == FlashcardMode.Flip
-            ? [.. Cards]
-            : [.. Cards.OrderByDescending(c => c.DifficultyScore).ThenByDescending(c => c.WrongCount)];
-
+        var filtered = Cards.Where(c => c.Rating != CardRating.Learned).ToList();
+        QuizDeck = [.. InterleaveByRating(filtered)];
         CurrentIndex = 0;
+        OnPropertyChanged(nameof(LearnedCount));
+        OnPropertyChanged(nameof(ActiveCount));
         RefreshCurrentCard();
+    }
+
+    /// <summary>
+    /// Round-robin interleave across rating groups so the user sees one Hard card,
+    /// then one New, one Normal, one Easy, then Hard again — instead of all Hard
+    /// cards exhausted before any Normal/Easy cards appear.
+    /// Within each group, hardest cards (by DifficultyScore) appear first.
+    /// Group order: Hard → New → Normal → Easy.
+    /// </summary>
+    private static IEnumerable<FlashCard> InterleaveByRating(List<FlashCard> cards)
+    {
+        static int GroupPriority(CardRating r) => r switch
+        {
+            CardRating.Hard   => 0,
+            CardRating.New    => 1,
+            CardRating.Normal => 2,
+            CardRating.Easy   => 3,
+            _                 => 99
+        };
+
+        var groups = cards
+            .GroupBy(c => c.Rating)
+            .OrderBy(g => GroupPriority(g.Key))
+            .Select(g => g
+                .OrderByDescending(c => c.DifficultyScore)
+                .ThenByDescending(c => c.WrongCount - c.CorrectCount)
+                .ThenByDescending(c => c.CreatedAt)
+                .ToList())
+            .ToList();
+
+        if (groups.Count == 0) yield break;
+
+        int maxLen = groups.Max(g => g.Count);
+        for (int i = 0; i < maxLen; i++)
+            foreach (var group in groups)
+                if (i < group.Count)
+                    yield return group[i];
     }
 
     private void RefreshCurrentCard()
@@ -224,11 +293,12 @@ public partial class FlashcardsViewModel : ViewModelBase
             ? QuizDeck[CurrentIndex]
             : null;
 
-        CurrentSide      = 0;
-        UserAnswer       = "";
+        CurrentSide       = 0;
+        UserAnswer        = "";
         IsAnswerSubmitted = false;
-        IsAnswerCorrect  = false;
-        AnswerFeedback   = "";
+        IsAnswerCorrect   = false;
+        AnswerFeedback    = "";
+        IsMcAnswerSubmitted = false;
 
         OnPropertyChanged(nameof(HasCards));
         OnPropertyChanged(nameof(CardPositionText));
@@ -238,6 +308,18 @@ public partial class FlashcardsViewModel : ViewModelBase
         OnPropertyChanged(nameof(QuizCorrectAnswer));
         OnPropertyChanged(nameof(ShowFlipCard));
         OnPropertyChanged(nameof(ShowQuizCard));
+        OnPropertyChanged(nameof(ShowMultipleChoice));
+        OnPropertyChanged(nameof(ShowListenCard));
+        OnPropertyChanged(nameof(ShowListenChoice));
+        OnPropertyChanged(nameof(ShowFlipRating));
+
+        if (IsChoiceMode)
+            BuildChoices();
+        else
+            Choices = [];
+
+        if (Mode is FlashcardMode.Listen or FlashcardMode.ListenChoice && CurrentCard != null)
+            _ = SpeakListenPromptAsync();
     }
 
     // ── Mode change ───────────────────────────────────────────────────────────
@@ -246,11 +328,34 @@ public partial class FlashcardsViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsFlipMode));
         OnPropertyChanged(nameof(IsForeignToNativeMode));
-        OnPropertyChanged(nameof(IsNativeToForeignMode));
+        OnPropertyChanged(nameof(IsMultipleChoiceMode));
+        OnPropertyChanged(nameof(IsListenMode));
+        OnPropertyChanged(nameof(IsListenChoiceMode));
         OnPropertyChanged(nameof(IsQuizMode));
+        OnPropertyChanged(nameof(IsChoiceMode));
         OnPropertyChanged(nameof(ShowFlipCard));
         OnPropertyChanged(nameof(ShowQuizCard));
+        OnPropertyChanged(nameof(ShowMultipleChoice));
+        OnPropertyChanged(nameof(ShowListenCard));
+        OnPropertyChanged(nameof(ShowListenChoice));
+        OnPropertyChanged(nameof(ShowFlipRating));
         BuildQuizDeck();
+    }
+
+    partial void OnReverseQuizDirectionChanged(bool value)
+    {
+        OnPropertyChanged(nameof(QuizPromptText));
+        OnPropertyChanged(nameof(QuizCorrectAnswer));
+        // Reset current answer when direction flips
+        UserAnswer          = "";
+        IsAnswerSubmitted   = false;
+        IsAnswerCorrect     = false;
+        AnswerFeedback      = "";
+        IsMcAnswerSubmitted = false;
+        if (IsChoiceMode)
+            BuildChoices();
+        if (Mode is FlashcardMode.Listen or FlashcardMode.ListenChoice && CurrentCard != null)
+            _ = SpeakListenPromptAsync();
     }
 
     // ── Navigation commands ───────────────────────────────────────────────────
@@ -259,8 +364,17 @@ public partial class FlashcardsViewModel : ViewModelBase
     private void NextCard()
     {
         if (QuizDeck.Count == 0) return;
-        CurrentIndex = (CurrentIndex + 1) % QuizDeck.Count;
-        RefreshCurrentCard();
+        bool isLast = CurrentIndex >= QuizDeck.Count - 1;
+        if (isLast)
+        {
+            // Rebuild with updated ratings so the next pass reflects any changes
+            BuildQuizDeck();
+        }
+        else
+        {
+            CurrentIndex++;
+            RefreshCurrentCard();
+        }
     }
 
     [RelayCommand]
@@ -278,6 +392,7 @@ public partial class FlashcardsViewModel : ViewModelBase
         CurrentSide = (CurrentSide + 1) % 3;
         OnPropertyChanged(nameof(CurrentSideLabel));
         OnPropertyChanged(nameof(CurrentSideText));
+        OnPropertyChanged(nameof(ShowFlipRating));
     }
 
     [RelayCommand]
@@ -411,6 +526,60 @@ public partial class FlashcardsViewModel : ViewModelBase
         OnPropertyChanged(nameof(QuizCorrectAnswer));
     }
 
+    // ── Multiple-choice helpers ───────────────────────────────────────────────
+
+    private static readonly Random _rng = new();
+
+    private void BuildChoices()
+    {
+        if (CurrentCard == null) { Choices = []; return; }
+
+        const int total = 4;
+
+        // The "answer" text shown on the buttons depends on direction
+        string correctText    = ReverseQuizDirection ? CurrentCard.FrontText : CurrentCard.BackText;
+        string correctField(FlashCard c) => ReverseQuizDirection ? c.FrontText : c.BackText;
+
+        var distractors = QuizDeck
+            .Where(c => c.Id != CurrentCard.Id &&
+                        !string.IsNullOrWhiteSpace(correctField(c)) &&
+                        correctField(c) != correctText)
+            .OrderBy(_ => _rng.Next())
+            .Take(total - 1)
+            .Select(c => new ChoiceOption { Text = correctField(c), IsCorrectAnswer = false })
+            .ToList();
+
+        var correctOption = new ChoiceOption { Text = correctText, IsCorrectAnswer = true };
+
+        var allOptions = distractors.Append(correctOption).OrderBy(_ => _rng.Next()).ToList();
+        Choices = new ObservableCollection<ChoiceOption>(allOptions);
+    }
+
+    [RelayCommand]
+    private async Task SelectChoice(ChoiceOption option)
+    {
+        if (IsMcAnswerSubmitted || CurrentCard == null) return;
+
+        IsMcAnswerSubmitted = true;
+
+        // Reveal all options
+        foreach (var c in Choices)
+        {
+            if (c.IsCorrectAnswer)
+                c.State = ChoiceState.Correct;
+            else if (ReferenceEquals(c, option) && !c.IsCorrectAnswer)
+                c.State = ChoiceState.Wrong;
+        }
+
+        var isCorrect = option.IsCorrectAnswer;
+        await _flashcardService.UpdateStatsAsync(CurrentCard.Id, isCorrect);
+
+        if (isCorrect)
+            CurrentCard.CorrectCount++;
+        else
+            CurrentCard.WrongCount++;
+    }
+
     // ── Card management commands ───────────────────────────────────────────────
 
     [RelayCommand]
@@ -429,7 +598,61 @@ public partial class FlashcardsViewModel : ViewModelBase
         StatusText = $"Карти: {Cards.Count}";
     }
 
+    // ── Rating command ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Rates the current card and advances to the next one.
+    /// The deck is NOT reordered mid-session — we simply advance to the next card.
+    /// On the next full cycle (wrap-around), BuildQuizDeck rebuilds with updated
+    /// ratings so Easy cards naturally fall later in the round-robin order.
+    /// Learned cards are removed immediately via a full rebuild.
+    /// </summary>
+    [RelayCommand]
+    private async Task RateCard(CardRating rating)
+    {
+        if (CurrentCard == null) return;
+
+        var card = CurrentCard;
+        card.Rating = rating;
+        await _flashcardService.UpdateRatingAsync(card.Id, rating);
+
+        if (rating == CardRating.Learned)
+        {
+            BuildQuizDeck();
+            StatusText = $"Заучена! Оставащи: {QuizDeck.Count}";
+            return;
+        }
+
+        // Just advance — deck order is preserved for this pass
+        NextCard();
+    }
+
+    [RelayCommand] private Task RateHard()    => RateCard(CardRating.Hard);
+    [RelayCommand] private Task RateNormal()  => RateCard(CardRating.Normal);
+    [RelayCommand] private Task RateEasy()    => RateCard(CardRating.Easy);
+    [RelayCommand] private Task RateLearned() => RateCard(CardRating.Learned);
+
     // ── TTS commands ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Speaks the listen-mode prompt: the word that the user must translate.
+    /// Direction-aware: FrontText (foreign) normally, BackText (BG) when reversed.
+    /// </summary>
+    [RelayCommand]
+    private async Task SpeakListenPrompt(CancellationToken ct)
+    {
+        if (CurrentCard == null) return;
+        await SpeakListenPromptAsync(ct);
+    }
+
+    private async Task SpeakListenPromptAsync(CancellationToken ct = default)
+    {
+        if (CurrentCard == null) return;
+        var text = ReverseQuizDirection ? CurrentCard.BackText : CurrentCard.FrontText;
+        var lang = ReverseQuizDirection ? BackLanguage : FrontLanguage;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        await SpeakAsync([text], lang, ct);
+    }
 
     /// <summary>
     /// Speaks the text on the currently visible side using the appropriate language.
