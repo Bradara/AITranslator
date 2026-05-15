@@ -113,7 +113,9 @@ public class FlashcardService
             "You are a language learning assistant. " +
             "Given a foreign word or phrase, respond ONLY with a JSON object (no markdown, no extra text) " +
             "in this exact format: {\"translation\": \"...\", \"usage\": \"...\"}\n" +
-            "- 'translation': the Bulgarian translation / meaning of the word.\n" +
+            "- 'translation': the top 3 most common Bulgarian meanings/translations of the word, " +
+            "numbered and separated by newlines, e.g. '1. значение едно\\n2. значение две\\n3. значение три'. " +
+
             "- 'usage': 2-3 example sentences IN THE ORIGINAL FOREIGN LANGUAGE showing how the word is used, " +
             "plus 2-3 synonyms / thesaurus entries IN THE ORIGINAL FOREIGN LANGUAGE. " +
             "Do NOT translate the usage text to Bulgarian.";

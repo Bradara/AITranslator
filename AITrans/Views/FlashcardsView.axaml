@@ -18,11 +18,14 @@
         <!-- Row 1: three text inputs -->
         <Grid ColumnDefinitions="*,*,*">
           <TextBox Grid.Column="0" Watermark="Страна 1 – дума / израз"
-                   Text="{Binding NewFrontText}" Margin="0,0,5,0" />
+                   Text="{Binding NewFrontText}" Margin="0,0,5,0"
+                   AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="120" />
           <TextBox Grid.Column="1" Watermark="Страна 2 – превод (BG)"
-                   Text="{Binding NewBackText}" Margin="0,0,5,0" />
+                   Text="{Binding NewBackText}" Margin="0,0,5,0"
+                   AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="120" />
           <TextBox Grid.Column="2" Watermark="Страна 3 – употреба / тезаурус"
-                   Text="{Binding NewUsageText}" />
+                   Text="{Binding NewUsageText}"
+                   AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="120" />
         </Grid>
 
         <!-- Row 2: action buttons -->

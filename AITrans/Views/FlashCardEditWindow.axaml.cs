@@ -1,6 +1,8 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using AITrans.Models;
 using AITrans.Services;
@@ -14,6 +16,9 @@ namespace AITrans.Views;
 /// </summary>
 public partial class FlashCardEditWindow : Window
 {
+    /// <summary>Exposed as x:Static so the Rating ComboBox can use it as ItemsSource.</summary>
+    public static readonly CardRating[] RatingValues = Enum.GetValues<CardRating>();
+
     private readonly FlashcardService _service;
     private readonly ObservableCollection<FlashCard> _cards;
 
@@ -31,6 +36,26 @@ public partial class FlashCardEditWindow : Window
         _cards   = cards;
         InitializeComponent();
         CardsGrid.ItemsSource = _cards;
+    }
+
+    // ── Cell key handling ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Ctrl+Enter inserts a newline at the caret.
+    /// Plain Enter is NOT handled here — it bubbles up to the DataGrid which commits the edit.
+    /// </summary>
+    private void OnCellKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Return && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && sender is TextBox tb)
+        {
+            var idx  = tb.CaretIndex;
+            var text = tb.Text ?? "";
+            tb.Text       = text.Insert(idx, "\n");
+            tb.CaretIndex = idx + 1;
+            e.Handled     = true; // prevent DataGrid from committing
+        }
+        // plain Enter: not handled — DataGrid commits and moves to next row
     }
 
     // ── Cell edit committed ───────────────────────────────────────────────────

@@ -500,11 +500,11 @@ public class CacheService
         Execute(conn,
             """
             UPDATE flashcards
-            SET front_text = @ft, back_text = @bt, usage_text = @ut
+            SET front_text = @ft, back_text = @bt, usage_text = @ut, rating = @rt
             WHERE id = @id
             """,
             ("@ft", card.FrontText), ("@bt", card.BackText),
-            ("@ut", card.UsageText), ("@id", card.Id));
+            ("@ut", card.UsageText), ("@rt", (int)card.Rating), ("@id", card.Id));
     }
 
     public void UpdateFlashCardRating(int id, CardRating rating)

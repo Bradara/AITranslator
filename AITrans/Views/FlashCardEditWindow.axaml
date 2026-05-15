@@ -1,5 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:AITrans.Views"
+        xmlns:models="using:AITrans.Models"
         x:Class="AITrans.Views.FlashCardEditWindow"
         x:CompileBindings="False"
         Title="Всички флаш карти — редакция"
@@ -29,16 +31,77 @@
               CanUserResizeColumns="True"
               GridLinesVisibility="Horizontal"
               IsReadOnly="False"
+              RowHeight="72"
               CellEditEnding="OnCellEditEnding">
       <DataGrid.Columns>
-        <DataGridTextColumn Header="Страна 1 — дума / израз"
-                            Binding="{Binding FrontText}" Width="*" />
-        <DataGridTextColumn Header="Страна 2 — превод (BG)"
-                            Binding="{Binding BackText}" Width="*" />
-        <DataGridTextColumn Header="Страна 3 — употреба"
-                            Binding="{Binding UsageText}" Width="*" />
+        <!-- Страна 1 -->
+        <DataGridTemplateColumn Header="Страна 1 — дума / израз" Width="*">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding FrontText}" TextWrapping="Wrap"
+                         VerticalAlignment="Center" Margin="8,4" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <TextBox Text="{Binding FrontText, Mode=TwoWay}"
+                       AcceptsReturn="False" TextWrapping="Wrap"
+                       KeyDown="OnCellKeyDown"
+                       VerticalAlignment="Stretch" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
+        <!-- Страна 2 -->
+        <DataGridTemplateColumn Header="Страна 2 — превод (BG)" Width="*">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding BackText}" TextWrapping="Wrap"
+                         VerticalAlignment="Center" Margin="8,4" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <TextBox Text="{Binding BackText, Mode=TwoWay}"
+                       AcceptsReturn="False" TextWrapping="Wrap"
+                       KeyDown="OnCellKeyDown"
+                       VerticalAlignment="Stretch" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
+        <!-- Страна 3 -->
+        <DataGridTemplateColumn Header="Страна 3 — употреба" Width="*">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding UsageText}" TextWrapping="Wrap"
+                         VerticalAlignment="Center" Margin="8,4" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <TextBox Text="{Binding UsageText, Mode=TwoWay}"
+                       AcceptsReturn="False" TextWrapping="Wrap"
+                       KeyDown="OnCellKeyDown"
+                       VerticalAlignment="Stretch" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
         <DataGridTextColumn Header="✓" Binding="{Binding CorrectCount}" Width="40" IsReadOnly="True" />
         <DataGridTextColumn Header="✗" Binding="{Binding WrongCount}"   Width="40" IsReadOnly="True" />
+        <!-- Rating column — editable so Learned cards can be reset -->
+        <DataGridTemplateColumn Header="Рейтинг" Width="130">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Rating}" VerticalAlignment="Center" Margin="8,0" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <ComboBox ItemsSource="{x:Static local:FlashCardEditWindow.RatingValues}"
+                        SelectedItem="{Binding Rating, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
         <DataGridTemplateColumn Header="" Width="50">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate>
