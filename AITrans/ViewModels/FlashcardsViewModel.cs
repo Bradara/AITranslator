@@ -490,6 +490,24 @@ public partial class FlashcardsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Called from code-behind with the file path from the save-file dialog.</summary>
+    [RelayCommand]
+    private async Task ExportCsv(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+
+        StatusText = "Експортиране…";
+        try
+        {
+            await _flashcardService.ExportToCsvAsync(filePath, Cards);
+            StatusText = $"Експортирани {Cards.Count} карти.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Грешка при експорт: {ex.Message}";
+        }
+    }
+
     // ── Quiz commands ─────────────────────────────────────────────────────────
 
     [RelayCommand]

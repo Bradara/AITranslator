@@ -53,6 +53,28 @@ public partial class FlashcardsView : UserControl
             await Vm.ImportCsvCommand.ExecuteAsync(files[0].Path.LocalPath);
     }
 
+    // ── CSV export (file dialog) ──────────────────────────────────────────────
+
+    private async void OnExportCsvClick(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title           = "Запази карти като CSV",
+            SuggestedFileName = "flashcards.csv",
+            FileTypeChoices =
+            [
+                new FilePickerFileType("CSV файлове") { Patterns = ["*.csv"] },
+                new FilePickerFileType("Всички файлове") { Patterns = ["*"] }
+            ]
+        });
+
+        if (file != null && Vm != null)
+            await Vm.ExportCsvCommand.ExecuteAsync(file.Path.LocalPath);
+    }
+
     // ── Submit answer on Enter key in the answer TextBox ────────────────────
 
     private async void OnAnswerBoxKeyDown(object? sender, KeyEventArgs e)

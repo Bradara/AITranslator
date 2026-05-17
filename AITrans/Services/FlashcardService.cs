@@ -156,6 +156,35 @@ public class FlashcardService
     }
 
     /// <summary>
+    /// Exports all provided cards to a semicolon-delimited CSV file with a header row.
+    /// Fields that contain semicolons, double-quotes, or newlines are RFC-4180 quoted.
+    /// </summary>
+    public async Task ExportToCsvAsync(string filePath, IEnumerable<FlashCard> cards)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("front;back;usage");
+
+        foreach (var card in cards)
+        {
+            sb.Append(QuoteCsvField(card.FrontText, ';'));
+            sb.Append(';');
+            sb.Append(QuoteCsvField(card.BackText, ';'));
+            sb.Append(';');
+            sb.AppendLine(QuoteCsvField(card.UsageText, ';'));
+        }
+
+        await File.WriteAllTextAsync(filePath, sb.ToString(), Encoding.UTF8);
+    }
+
+    /// <summary>Wraps a field in double-quotes if it contains the delimiter, quotes, or newlines.</summary>
+    private static string QuoteCsvField(string field, char delimiter)
+    {
+        if (field.Contains(delimiter) || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+            return "\"" + field.Replace("\"", "\"\"") + "\"";
+        return field;
+    }
+
+    /// <summary>
     /// Simple RFC-4180-compatible CSV line splitter for a given delimiter.
     /// </summary>
     private static string[] SplitCsvLine(string line, char delimiter)

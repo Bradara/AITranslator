@@ -43,6 +43,10 @@
                   Content="📥 Импорт CSV"
                   Click="OnImportCsvClick"
                   ToolTip.Tip="Импортирай от CSV (разделител ;): front;back;usage" />
+          <Button x:Name="ExportCsvBtn"
+                  Content="📤 Експорт CSV"
+                  Click="OnExportCsvClick"
+                  ToolTip.Tip="Запази всички карти като CSV (разделител ;): front;back;usage" />
           <Button Content="📋 Всички карти"
                   Click="OnShowAllCardsClick"
                   ToolTip.Tip="Отвори списъка с всички карти за преглед и редакция" />
