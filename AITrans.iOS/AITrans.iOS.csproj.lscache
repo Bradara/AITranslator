@@ -23,14 +23,20 @@ RunAnalyzers=
 RunAnalyzersDuringLiveAnalysis=
 SolutionPath=<PATH>../AITrans.sln
 TargetFrameworkIdentifier=.NETCoreApp
+<<<<<<< HEAD
 TargetPath=<PATH>bin/Debug/net9.0-ios/iossimulator-arm64/AITrans.iOS.dll
 TargetRefPath=<PATH>obj/Debug/net9.0-ios/iossimulator-arm64/ref/AITrans.iOS.dll
+=======
+TargetPath=<PATH>bin/Debug/net9.0-ios/AITrans.iOS.dll
+TargetRefPath=<PATH>obj/Debug/net9.0-ios/ref/AITrans.iOS.dll
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
 TemporaryDependencyNodeTargetIdentifier=net9.0-ios
 
 [commandLineArguments]
 /noconfig
 /unsafe-
 /checked-
+<<<<<<< HEAD
 /nowarn:1701,1702,1701,1702
 /fullpaths
 /nostdlib+
@@ -38,15 +44,29 @@ TemporaryDependencyNodeTargetIdentifier=net9.0-ios
 /errorreport:prompt
 /warn:9
 /define:__IOS__;__MOBILE__;__UNIFIED__;TRACE;DEBUG;NET;NET9_0;NETCOREAPP;IOS;IOS26_2;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;IOS10_0_OR_GREATER;IOS10_1_OR_GREATER;IOS10_2_OR_GREATER;IOS11_0_OR_GREATER;IOS11_1_OR_GREATER;IOS11_2_OR_GREATER;IOS11_3_OR_GREATER;IOS11_4_OR_GREATER;IOS12_0_OR_GREATER;IOS12_1_OR_GREATER;IOS12_2_OR_GREATER;IOS12_3_OR_GREATER;IOS12_4_OR_GREATER;IOS13_0_OR_GREATER;IOS13_1_OR_GREATER;IOS13_2_OR_GREATER;IOS13_3_OR_GREATER;IOS13_4_OR_GREATER;IOS13_5_OR_GREATER;IOS13_6_OR_GREATER;IOS14_0_OR_GREATER;IOS14_1_OR_GREATER;IOS14_2_OR_GREATER;IOS14_3_OR_GREATER;IOS14_4_OR_GREATER;IOS14_5_OR_GREATER;IOS15_0_OR_GREATER;IOS15_2_OR_GREATER;IOS15_4_OR_GREATER;IOS16_0_OR_GREATER;IOS16_1_OR_GREATER;IOS16_2_OR_GREATER;IOS16_4_OR_GREATER;IOS17_0_OR_GREATER;IOS17_2_OR_GREATER;IOS17_4_OR_GREATER;IOS17_5_OR_GREATER;IOS18_0_OR_GREATER;IOS18_1_OR_GREATER;IOS18_2_OR_GREATER;IOS18_3_OR_GREATER;IOS18_4_OR_GREATER;IOS18_5_OR_GREATER;IOS26_0_OR_GREATER;IOS26_1_OR_GREATER;IOS26_2_OR_GREATER
+=======
+/nowarn:1701,1702,1701,1702,8002
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:9
+/define:TRACE;DEBUG;NET;NET9_0;NETCOREAPP;IOS;IOS0_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
 /highentropyva+
 /nullable:enable
 /debug+
 /debug:portable
 /filealign:512
+<<<<<<< HEAD
 /nowin32manifest
 /optimize-
 /out:obj/Debug/net9.0-ios/iossimulator-arm64/AITrans.iOS.dll
 /refout:obj/Debug/net9.0-ios/iossimulator-arm64/refint/AITrans.iOS.dll
+=======
+/optimize-
+/out:obj\Debug\net9.0-ios\AITrans.iOS.dll
+/refout:obj\Debug\net9.0-ios\refint\AITrans.iOS.dll
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
 /target:exe
 /warnaserror-
 /utf8output
@@ -57,10 +77,16 @@ TemporaryDependencyNodeTargetIdentifier=net9.0-ios
 [sourceFiles]
 AppDelegate.cs
 Main.cs
+<<<<<<< HEAD
 obj/Debug/net9.0-ios/iossimulator-arm64/
  .NETCoreApp,Version=v9.0.AssemblyAttributes.cs
  AITrans.iOS.AssemblyInfo.cs
  AITrans.iOS.nfloat.g.cs
+=======
+obj/Debug/net9.0-ios/
+ .NETCoreApp,Version=v9.0.AssemblyAttributes.cs
+ AITrans.iOS.AssemblyInfo.cs
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
 
 [metadataReferences]
 ../AITrans/obj/Debug/net9.0/ref/AITrans.dll
@@ -88,14 +114,19 @@ obj/Debug/net9.0-ios/iossimulator-arm64/
   Avalonia.MicroCom.dll
   Avalonia.OpenGL.dll
   Avalonia.Vulkan.dll
+<<<<<<< HEAD
  colordocument.avalonia/11.0.3-a1/lib/net6.0/ColorDocument.Avalonia.dll
  colortextblock.avalonia/11.0.3-a1/lib/net6.0/ColorTextBlock.Avalonia.dll
+=======
+ colortextblock.avalonia/11.0.2/lib/net6.0/ColorTextBlock.Avalonia.dll
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
  communitytoolkit.mvvm/8.4.0/lib/net8.0/CommunityToolkit.Mvvm.dll
  excss/4.1.4/lib/net6.0/ExCSS.dll
  fizzler/1.2.1/lib/netstandard2.0/Fizzler.dll
  harfbuzzsharp/8.3.1.1/lib/net8.0-ios17.0/HarfBuzzSharp.dll
  htmlagilitypack/1.11.54/lib/netstandard2.0/HtmlAgilityPack.dll
  markdig/0.41.0/lib/net9.0/Markdig.dll
+<<<<<<< HEAD
  markdown.avalonia.html/11.0.3-a1/lib/net6.0/Markdown.Avalonia.Html.dll
  markdown.avalonia.svg/11.0.3-a1/lib/net6.0/Markdown.Avalonia.Svg.dll
  markdown.avalonia.syntaxhigh/11.0.3-a1/lib/net6.0/Markdown.Avalonia.SyntaxHigh.dll
@@ -106,6 +137,17 @@ obj/Debug/net9.0-ios/iossimulator-arm64/
  microsoft.data.sqlite.core/9.0.3/lib/net8.0/Microsoft.Data.Sqlite.dll
  microsoft.ios.ref.net9.0_26.2/26.2.9000/ref/net9.0/Microsoft.iOS.dll
  microsoft.netcore.app.ref/9.0.14/ref/net9.0/
+=======
+ markdown.avalonia.html/11.0.2/lib/net6.0/Markdown.Avalonia.Html.dll
+ markdown.avalonia.svg/11.0.2/lib/net6.0/Markdown.Avalonia.Svg.dll
+ markdown.avalonia.syntaxhigh/11.0.2/lib/net6.0/Markdown.Avalonia.SyntaxHigh.dll
+ markdown.avalonia.tight/11.0.2/lib/net6.0/Markdown.Avalonia.dll
+ markdown.avalonia/11.0.2/lib/net6.0/Markdown.Avalonia.Full.dll
+ microcom.runtime/0.11.0/lib/net5.0/MicroCom.Runtime.dll
+ microsoft.cognitiveservices.speech/1.41.1/lib/net6.0-ios/Microsoft.CognitiveServices.Speech.csharp.dll
+ microsoft.data.sqlite.core/9.0.3/lib/net8.0/Microsoft.Data.Sqlite.dll
+ microsoft.netcore.app.ref/9.0.16/ref/net9.0/
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
   Microsoft.CSharp.dll
   Microsoft.VisualBasic.Core.dll
   Microsoft.VisualBasic.dll
@@ -281,7 +323,11 @@ obj/Debug/net9.0-ios/iossimulator-arm64/
  svg.model/1.0.0/lib/net6.0/Svg.Model.dll
 
 [analyzerReferences]
+<<<<<<< HEAD
 <DOTNET>/sdk/10.0.103/Sdks/Microsoft.NET.Sdk/analyzers/
+=======
+<DOTNET>/sdk/10.0.204/Sdks/Microsoft.NET.Sdk/analyzers/
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
  Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
  Microsoft.CodeAnalysis.NetAnalyzers.dll
 <NUGET>/avalonia/11.3.10/analyzers/dotnet/cs/
@@ -290,10 +336,17 @@ obj/Debug/net9.0-ios/iossimulator-arm64/
 <NUGET>/communitytoolkit.mvvm/8.4.0/analyzers/dotnet/roslyn4.12/cs/
  CommunityToolkit.Mvvm.CodeFixers.dll
  CommunityToolkit.Mvvm.SourceGenerators.dll
+<<<<<<< HEAD
 <NUGET>/microsoft.net.illink.tasks/9.0.13/analyzers/dotnet/cs/
  ILLink.CodeFixProvider.dll
  ILLink.RoslynAnalyzer.dll
 <NUGET>/microsoft.netcore.app.ref/9.0.14/analyzers/dotnet/cs/
+=======
+<NUGET>/microsoft.net.illink.tasks/9.0.14/analyzers/dotnet/cs/
+ ILLink.CodeFixProvider.dll
+ ILLink.RoslynAnalyzer.dll
+<NUGET>/microsoft.netcore.app.ref/9.0.16/analyzers/dotnet/cs/
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8
  Microsoft.Interop.ComInterfaceGenerator.dll
  Microsoft.Interop.JavaScript.JSImportGenerator.dll
  Microsoft.Interop.LibraryImportGenerator.dll
@@ -302,5 +355,10 @@ obj/Debug/net9.0-ios/iossimulator-arm64/
  System.Text.RegularExpressions.Generator.dll
 
 [analyzerConfigFiles]
+<<<<<<< HEAD
 <DOTNET>/sdk/10.0.103/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_9_default.globalconfig
 obj/Debug/net9.0-ios/iossimulator-arm64/AITrans.iOS.GeneratedMSBuildEditorConfig.editorconfig
+=======
+<DOTNET>/sdk/10.0.204/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_9_default.globalconfig
+obj/Debug/net9.0-ios/AITrans.iOS.GeneratedMSBuildEditorConfig.editorconfig
+>>>>>>> f9d71d8aab5c556f187396f4a3d4b892b1dc3fe8

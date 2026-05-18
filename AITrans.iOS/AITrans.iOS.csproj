@@ -4,6 +4,7 @@
     <TargetFramework>net9.0-ios</TargetFramework>
     <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
+    <UserSecretsId>a9aa4fa0-c204-44ac-add7-5d69a7fbe262</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
