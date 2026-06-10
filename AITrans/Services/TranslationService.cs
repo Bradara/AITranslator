@@ -471,16 +471,31 @@ public class TranslationService
         if (settings?.Provider == AiProvider.Gemini)
             return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
 
-        var requestBody = new
-        {
-            model,
-            messages = new object[]
+        // For Ollama / LM Studio disable the reasoning/thinking mode so responses are faster
+        var isOllama = settings?.Provider == AiProvider.OllamaLmStudio;
+
+        object requestBody = isOllama
+            ? new
             {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userMessage }
-            },
-            temperature = settings?.Temperature ?? 1.0
-        };
+                model,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userMessage }
+                },
+                temperature = settings?.Temperature ?? 1.0,
+                think = false
+            }
+            : new
+            {
+                model,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userMessage }
+                },
+                temperature = settings?.Temperature ?? 1.0
+            };
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
