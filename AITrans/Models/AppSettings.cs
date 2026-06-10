@@ -9,7 +9,8 @@ public enum AiProvider
     OpenRouter,
     Gemini,
     DeepSeek,
-    Groq
+    Groq,
+    OllamaLmStudio
 }
 
 public class AppSettings
@@ -28,6 +29,8 @@ public class AppSettings
     public string GeminiApiKey { get; set; } = "";
     public string DeepSeekApiKey { get; set; } = "";
     public string GroqApiKey { get; set; } = "";
+    // Ollama / LM Studio: no API key required (leave empty)
+    public string OllamaLmStudioApiKey { get; set; } = "";
 
     public string OpenAiModel { get; set; } = "gpt-4o-mini";
     public string GitHubCopilotModel { get; set; } = "gpt-4o";
@@ -35,6 +38,9 @@ public class AppSettings
     public string GeminiModel { get; set; } = "gemini-2.0-flash";
     public string DeepSeekModel { get; set; } = "deepseek-chat";
     public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
+    public string OllamaLmStudioModel { get; set; } = "llama3";
+    // Endpoint URL for Ollama or LM Studio (OpenAI-compatible)
+    public string OllamaLmStudioEndpoint { get; set; } = "http://localhost:11434/v1/chat/completions";
 
     // Chat (AI Assistant) — per-provider model selection
     public string ChatOpenAiModel { get; set; } = "gpt-4o-mini";
@@ -43,6 +49,7 @@ public class AppSettings
     public string ChatGeminiModel { get; set; } = "gemini-2.0-flash";
     public string ChatDeepSeekModel { get; set; } = "deepseek-chat";
     public string ChatGroqModel { get; set; } = "llama-3.3-70b-versatile";
+    public string ChatOllamaLmStudioModel { get; set; } = "llama3";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -113,8 +120,12 @@ public class AppSettings
         AiProvider.Gemini => GeminiApiKey,
         AiProvider.DeepSeek => DeepSeekApiKey,
         AiProvider.Groq => GroqApiKey,
+        AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
         _ => OpenAiApiKey
     };
+
+    /// <summary>True when the active translation provider needs a non-empty API key to work.</summary>
+    public bool ActiveProviderRequiresApiKey => Provider != AiProvider.OllamaLmStudio;
 
     public string ActiveModel => Provider switch
     {
@@ -123,6 +134,7 @@ public class AppSettings
         AiProvider.Gemini => GeminiModel,
         AiProvider.DeepSeek => DeepSeekModel,
         AiProvider.Groq => GroqModel,
+        AiProvider.OllamaLmStudio => OllamaLmStudioModel,
         _ => OpenAiModel
     };
 
@@ -137,6 +149,7 @@ public class AppSettings
         AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
         AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
         AiProvider.Groq => "https://api.x.ai/v1/chat/completions",
+        AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
         _ => "https://api.openai.com/v1/chat/completions"
     };
 
@@ -154,44 +167,54 @@ public class AppSettings
         {
             var chatKey = ChatProvider switch
             {
-                AiProvider.GitHubCopilot => GitHubCopilotApiKey,
-                AiProvider.OpenRouter    => OpenRouterApiKey,
-                AiProvider.Gemini        => GeminiApiKey,
-                AiProvider.DeepSeek      => DeepSeekApiKey,
-                AiProvider.Groq          => GroqApiKey,
-                _                        => OpenAiApiKey
+                AiProvider.GitHubCopilot  => GitHubCopilotApiKey,
+                AiProvider.OpenRouter     => OpenRouterApiKey,
+                AiProvider.Gemini         => GeminiApiKey,
+                AiProvider.DeepSeek       => DeepSeekApiKey,
+                AiProvider.Groq           => GroqApiKey,
+                AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
+                _                         => OpenAiApiKey
             };
+            // Ollama/LM Studio has no key — treat as configured when endpoint is set
+            if (ChatProvider == AiProvider.OllamaLmStudio)
+                return !string.IsNullOrWhiteSpace(OllamaLmStudioEndpoint) ? ChatProvider : Provider;
             return string.IsNullOrWhiteSpace(chatKey) ? Provider : ChatProvider;
         }
     }
 
     public string ChatActiveApiKey => EffectiveChatProvider switch
     {
-        AiProvider.GitHubCopilot => GitHubCopilotApiKey,
-        AiProvider.OpenRouter    => OpenRouterApiKey,
-        AiProvider.Gemini        => GeminiApiKey,
-        AiProvider.DeepSeek      => DeepSeekApiKey,
-        AiProvider.Groq          => GroqApiKey,
-        _                        => OpenAiApiKey
+        AiProvider.GitHubCopilot  => GitHubCopilotApiKey,
+        AiProvider.OpenRouter     => OpenRouterApiKey,
+        AiProvider.Gemini         => GeminiApiKey,
+        AiProvider.DeepSeek       => DeepSeekApiKey,
+        AiProvider.Groq           => GroqApiKey,
+        AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
+        _                         => OpenAiApiKey
     };
+
+    /// <summary>True when the active chat provider needs a non-empty API key to work.</summary>
+    public bool ChatProviderRequiresApiKey => EffectiveChatProvider != AiProvider.OllamaLmStudio;
 
     public string ChatActiveModel => EffectiveChatProvider switch
     {
-        AiProvider.GitHubCopilot => ChatGitHubCopilotModel,
-        AiProvider.OpenRouter    => ChatOpenRouterModel,
-        AiProvider.Gemini        => ChatGeminiModel,
-        AiProvider.DeepSeek      => ChatDeepSeekModel,
-        AiProvider.Groq          => ChatGroqModel,
-        _                        => ChatOpenAiModel
+        AiProvider.GitHubCopilot  => ChatGitHubCopilotModel,
+        AiProvider.OpenRouter     => ChatOpenRouterModel,
+        AiProvider.Gemini         => ChatGeminiModel,
+        AiProvider.DeepSeek       => ChatDeepSeekModel,
+        AiProvider.Groq           => ChatGroqModel,
+        AiProvider.OllamaLmStudio => ChatOllamaLmStudioModel,
+        _                         => ChatOpenAiModel
     };
 
     public string ChatActiveEndpoint => EffectiveChatProvider switch
     {
-        AiProvider.GitHubCopilot => GitHubCopilotInferenceUrl,
-        AiProvider.OpenRouter    => "https://openrouter.ai/api/v1/chat/completions",
-        AiProvider.Gemini        => "https://generativelanguage.googleapis.com/v1beta/models",
-        AiProvider.DeepSeek      => "https://api.deepseek.com/chat/completions",
-        AiProvider.Groq          => "https://api.x.ai/v1/chat/completions",
-        _                        => "https://api.openai.com/v1/chat/completions"
+        AiProvider.GitHubCopilot  => GitHubCopilotInferenceUrl,
+        AiProvider.OpenRouter     => "https://openrouter.ai/api/v1/chat/completions",
+        AiProvider.Gemini         => "https://generativelanguage.googleapis.com/v1beta/models",
+        AiProvider.DeepSeek       => "https://api.deepseek.com/chat/completions",
+        AiProvider.Groq           => "https://api.x.ai/v1/chat/completions",
+        AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
+        _                         => "https://api.openai.com/v1/chat/completions"
     };
 }

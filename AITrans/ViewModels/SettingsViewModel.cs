@@ -22,6 +22,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsGemini))]
     [NotifyPropertyChangedFor(nameof(IsDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsGroq))]
+    [NotifyPropertyChangedFor(nameof(IsOllama))]
     private string _selectedProvider = "OpenAI";
 
     public bool IsOpenAi => SelectedProvider == "OpenAI";
@@ -30,6 +31,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsGemini => SelectedProvider == "Gemini";
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
     public bool IsGroq => SelectedProvider == "xAI";
+    public bool IsOllama => SelectedProvider == "Ollama / LM Studio";
 
     // ── Chat (AI Assistant) provider ──
     [ObservableProperty]
@@ -39,6 +41,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsChatGemini))]
     [NotifyPropertyChangedFor(nameof(IsChatDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsChatGroq))]
+    [NotifyPropertyChangedFor(nameof(IsChatOllama))]
     private string _selectedChatProvider = "OpenAI";
 
     public bool IsChatOpenAi => SelectedChatProvider == "OpenAI";
@@ -47,6 +50,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsChatGemini => SelectedChatProvider == "Gemini";
     public bool IsChatDeepSeek => SelectedChatProvider == "DeepSeek";
     public bool IsChatGroq => SelectedChatProvider == "xAI";
+    public bool IsChatOllama => SelectedChatProvider == "Ollama / LM Studio";
 
     [ObservableProperty] private string _chatOpenAiModel = "gpt-4o-mini";
     [ObservableProperty] private string _chatGitHubCopilotModel = "gpt-4o";
@@ -54,6 +58,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _chatGeminiModel = "gemini-2.0-flash";
     [ObservableProperty] private string _chatDeepSeekModel = "deepseek-chat";
     [ObservableProperty] private string _chatGroqModel = "llama-3.3-70b-versatile";
+    [ObservableProperty] private string _chatOllamaLmStudioModel = "llama3";
 
     [ObservableProperty]
     private string _openAiApiKey = "";
@@ -90,6 +95,12 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _groqModel = "llama-3.3-70b-versatile";
+
+    [ObservableProperty]
+    private string _ollamaLmStudioEndpoint = "http://localhost:11434/v1/chat/completions";
+
+    [ObservableProperty]
+    private string _ollamaLmStudioModel = "llama3";
 
     [ObservableProperty]
     private bool _openRouterAutoRotate = true;
@@ -160,7 +171,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _speechSourceLanguage = "English";
 
-    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI"];
+    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Ollama / LM Studio"];
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
@@ -284,20 +295,22 @@ public partial class SettingsViewModel : ViewModelBase
         var s = settingsService.Settings;
         SelectedProvider = s.Provider switch
         {
-            AiProvider.GitHubCopilot => "GitHub Copilot",
-            AiProvider.OpenRouter => "OpenRouter",
-            AiProvider.Gemini => "Gemini",
-            AiProvider.DeepSeek => "DeepSeek",
-            AiProvider.Groq => "xAI",
+            AiProvider.GitHubCopilot  => "GitHub Copilot",
+            AiProvider.OpenRouter     => "OpenRouter",
+            AiProvider.Gemini         => "Gemini",
+            AiProvider.DeepSeek       => "DeepSeek",
+            AiProvider.Groq           => "xAI",
+            AiProvider.OllamaLmStudio => "Ollama / LM Studio",
             _ => "OpenAI"
         };
         SelectedChatProvider = s.ChatProvider switch
         {
-            AiProvider.GitHubCopilot => "GitHub Copilot",
-            AiProvider.OpenRouter => "OpenRouter",
-            AiProvider.Gemini => "Gemini",
-            AiProvider.DeepSeek => "DeepSeek",
-            AiProvider.Groq => "xAI",
+            AiProvider.GitHubCopilot  => "GitHub Copilot",
+            AiProvider.OpenRouter     => "OpenRouter",
+            AiProvider.Gemini         => "Gemini",
+            AiProvider.DeepSeek       => "DeepSeek",
+            AiProvider.Groq           => "xAI",
+            AiProvider.OllamaLmStudio => "Ollama / LM Studio",
             _ => "OpenAI"
         };
         OpenAiApiKey = s.OpenAiApiKey;
@@ -318,6 +331,9 @@ public partial class SettingsViewModel : ViewModelBase
         ChatGeminiModel = s.ChatGeminiModel;
         ChatDeepSeekModel = s.ChatDeepSeekModel;
         ChatGroqModel = s.ChatGroqModel;
+        ChatOllamaLmStudioModel = s.ChatOllamaLmStudioModel;
+        OllamaLmStudioEndpoint = s.OllamaLmStudioEndpoint;
+        OllamaLmStudioModel = s.OllamaLmStudioModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
         // Load GitHub endpoint label from saved URL
         var urlIdx = Array.IndexOf(_ghEndpointUrls, s.GitHubCopilotInferenceUrl);
@@ -490,11 +506,12 @@ public partial class SettingsViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.Provider = SelectedProvider switch
         {
-            "GitHub Copilot" => AiProvider.GitHubCopilot,
-            "OpenRouter" => AiProvider.OpenRouter,
-            "Gemini" => AiProvider.Gemini,
-            "DeepSeek" => AiProvider.DeepSeek,
-            "xAI" => AiProvider.Groq,
+            "GitHub Copilot"     => AiProvider.GitHubCopilot,
+            "OpenRouter"         => AiProvider.OpenRouter,
+            "Gemini"             => AiProvider.Gemini,
+            "DeepSeek"           => AiProvider.DeepSeek,
+            "xAI"                => AiProvider.Groq,
+            "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
             _ => AiProvider.OpenAI
         };
         s.OpenAiApiKey = OpenAiApiKey;
@@ -512,11 +529,12 @@ public partial class SettingsViewModel : ViewModelBase
         s.GroqModels = [.. GroqModels];
         s.ChatProvider = SelectedChatProvider switch
         {
-            "GitHub Copilot" => AiProvider.GitHubCopilot,
-            "OpenRouter" => AiProvider.OpenRouter,
-            "Gemini" => AiProvider.Gemini,
-            "DeepSeek" => AiProvider.DeepSeek,
-            "xAI" => AiProvider.Groq,
+            "GitHub Copilot"     => AiProvider.GitHubCopilot,
+            "OpenRouter"         => AiProvider.OpenRouter,
+            "Gemini"             => AiProvider.Gemini,
+            "DeepSeek"           => AiProvider.DeepSeek,
+            "xAI"                => AiProvider.Groq,
+            "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
             _ => AiProvider.OpenAI
         };
         s.ChatOpenAiModel = ChatOpenAiModel;
@@ -525,6 +543,9 @@ public partial class SettingsViewModel : ViewModelBase
         s.ChatGeminiModel = ChatGeminiModel;
         s.ChatDeepSeekModel = ChatDeepSeekModel;
         s.ChatGroqModel = ChatGroqModel;
+        s.ChatOllamaLmStudioModel = ChatOllamaLmStudioModel;
+        s.OllamaLmStudioEndpoint = OllamaLmStudioEndpoint;
+        s.OllamaLmStudioModel = OllamaLmStudioModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;
         // GitHub Copilot inference endpoint
         var labelIdx = Array.IndexOf(_ghEndpointLabels, GitHubCopilotEndpointLabel);

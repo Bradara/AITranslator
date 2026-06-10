@@ -130,8 +130,7 @@
         </StackPanel>
 
         <!-- OpenRouter -->
-        <StackPanel Spacing="10" IsVisible="{Binding IsOpenRouter}">
-          <TextBlock Text="OpenRouter" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="10" IsVisible="{Binding IsOpenRouter}">          <TextBlock Text="OpenRouter" FontSize="16" FontWeight="SemiBold" />
           <StackPanel Spacing="4">
             <TextBlock Text="API Key" />
             <TextBox Text="{Binding OpenRouterApiKey}" PasswordChar="&#x2022;" Watermark="sk-or-..." />
@@ -150,6 +149,24 @@
             <Button Content="&#x1F504; Fetch free models" Command="{Binding FetchFreeModelsCommand}"
                     IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
             <TextBlock Text="{Binding FreeModelCount}" VerticalAlignment="Center" FontSize="12" Opacity="0.7" />
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Ollama / LM Studio -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsOllama}">
+          <TextBlock Text="Ollama / LM Studio" FontSize="16" FontWeight="SemiBold" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="Endpoint (пълен URL на chat completions)" />
+            <TextBox Text="{Binding OllamaLmStudioEndpoint}"
+                     Watermark="http://localhost:11434/v1/chat/completions" />
+            <TextBlock Text="Ollama: http://localhost:11434/v1/chat/completions · LM Studio: http://localhost:1234/v1/chat/completions"
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Модел" />
+            <TextBox Text="{Binding OllamaLmStudioModel}" Watermark="llama3, mistral, phi3..." Width="240" />
+            <TextBlock Text="Въведи точното ime на модела (ollama list / LM Studio → My Models)."
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
           </StackPanel>
         </StackPanel>
 
@@ -185,6 +202,12 @@
         <StackPanel Spacing="4" IsVisible="{Binding IsChatOpenRouter}">
           <TextBlock Text="Model" />
           <ComboBox ItemsSource="{Binding OpenRouterModels}" SelectedItem="{Binding ChatOpenRouterModel}" Width="240" />
+        </StackPanel>
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatOllama}">
+          <TextBlock Text="Модел" />
+          <TextBox Text="{Binding ChatOllamaLmStudioModel}" Watermark="llama3, mistral, phi3..." Width="240" />
+          <TextBlock Text="Endpoint-ът е споделен с настройките за превод по-горе."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
 
                 <Separator Margin="0,4" />

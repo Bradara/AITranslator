@@ -244,7 +244,7 @@ public partial class SubtitlesViewModel : ViewModelBase
 
         var settings = _settingsService.Settings;
         var apiKey = settings.ActiveApiKey;
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (string.IsNullOrWhiteSpace(apiKey) && settings.ActiveProviderRequiresApiKey)
         {
             StatusText = "Error: API key not set. Go to Settings tab.";
             return;

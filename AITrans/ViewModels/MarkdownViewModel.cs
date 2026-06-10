@@ -1651,7 +1651,7 @@ public partial class MarkdownViewModel : ViewModelBase
             else
             {
                 var apiKey = settings.ActiveApiKey;
-                if (string.IsNullOrWhiteSpace(apiKey))
+                if (string.IsNullOrWhiteSpace(apiKey) && settings.ActiveProviderRequiresApiKey)
                 {
                     StatusText = "Error: API key not set. Go to Settings tab.";
                     return;

@@ -428,7 +428,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
         // Validate before clearing — preserves the user's text if not configured
         var settings = _settingsService.Settings;
-        if (string.IsNullOrWhiteSpace(settings.ChatActiveApiKey))
+        if (string.IsNullOrWhiteSpace(settings.ChatActiveApiKey) && settings.ChatProviderRequiresApiKey)
         {
             StatusText = "AI ключът не е конфигуриран. Отиди в Settings.";
             return;
@@ -447,7 +447,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     internal async Task ExecuteChatActionAsync(string userMessage)
     {
         var settings = _settingsService.Settings;
-        if (string.IsNullOrWhiteSpace(settings.ChatActiveApiKey))
+        if (string.IsNullOrWhiteSpace(settings.ChatActiveApiKey) && settings.ChatProviderRequiresApiKey)
         {
             StatusText = "AI ключът за чат не е конфигуриран. Отиди в Settings → Chat AI.";
             return;

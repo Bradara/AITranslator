@@ -484,7 +484,9 @@ public class TranslationService
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        // Ollama and LM Studio work without an API key; skip the Authorization header when key is empty
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var response = await HttpClient.SendAsync(request, ct);
