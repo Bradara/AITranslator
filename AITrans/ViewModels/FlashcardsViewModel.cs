@@ -519,9 +519,9 @@ public partial class FlashcardsViewModel : ViewModelBase
 
         // Split correct answer by comma/semicolon to support multiple accepted forms
         var accepted = correctAnswer
-            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Split([',', ';', '.', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim())
-            .Where(s => s.Length > 0)
+            .Where(s => s.Length > 1)
             .ToList();
 
         var userTrimmed = UserAnswer.Trim();

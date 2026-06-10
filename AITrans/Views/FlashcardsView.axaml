@@ -103,25 +103,27 @@
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
         <TextBlock Text="Режим:" VerticalAlignment="Center" />
         <RadioButton Content="🔄 Обръщане"
-                     IsChecked="{Binding IsFlipMode}"
+        IsChecked="{Binding IsFlipMode}"
                      GroupName="FlashcardMode"
                      ToolTip.Tip="Преглед — кликни върху картата, за да видиш следващата страна" />
-        <RadioButton Content="✏️ Въвеждане"
-                     IsChecked="{Binding IsForeignToNativeMode}"
-                     GroupName="FlashcardMode"
-                     ToolTip.Tip="Виждаш думата, въвеждаш превода" />
+
         <RadioButton Content="☑ Избор"
                      IsChecked="{Binding IsMultipleChoiceMode}"
                      GroupName="FlashcardMode"
                      ToolTip.Tip="Виждаш думата на чуждия език, избираш превода от 4 варианта" />
-        <RadioButton Content="🔊 Слушане"
-                     IsChecked="{Binding IsListenMode}"
+        <RadioButton Content="✏️ Въвеждане"
+                     IsChecked="{Binding IsForeignToNativeMode}"
                      GroupName="FlashcardMode"
-                     ToolTip.Tip="Чуваш думата, въвеждаш превода" />
+                     ToolTip.Tip="Виждаш думата, въвеждаш превода" />
+
         <RadioButton Content="🔊☑ Слушане+Избор"
                      IsChecked="{Binding IsListenChoiceMode}"
                      GroupName="FlashcardMode"
                      ToolTip.Tip="Чуваш думата, избираш превода от 4 варианта" />
+                <RadioButton Content="🔊 Слушане"
+                     IsChecked="{Binding IsListenMode}"
+                     GroupName="FlashcardMode"
+                     ToolTip.Tip="Чуваш думата, въвеждаш превода" />
         <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="0,4" />
         <CheckBox Content="🔄 BG → Чужд"
                   IsChecked="{Binding ReverseQuizDirection}"

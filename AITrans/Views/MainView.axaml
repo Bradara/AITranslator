@@ -9,20 +9,21 @@
              x:DataType="vm:MainViewModel">
 
   <TabControl Margin="5">
-    <TabItem Header="Subtitles">
-      <views:SubtitlesView DataContext="{Binding SubtitlesTab}" />
+    <TabItem Header="🃏 Flashcards">
+      <views:FlashcardsView DataContext="{Binding FlashcardsTab}" />
     </TabItem>
+    
     <TabItem Header="Markdown">
       <views:MarkdownView DataContext="{Binding MarkdownTab}" />
     </TabItem>
     <TabItem Header="📖 Preview">
       <views:MarkdownPreviewView DataContext="{Binding MarkdownPreviewTab}" />
     </TabItem>
+    <TabItem Header="Subtitles">
+      <views:SubtitlesView DataContext="{Binding SubtitlesTab}" />
+    </TabItem>
     <TabItem Header="Settings">
       <views:SettingsView DataContext="{Binding SettingsTab}" />
-    </TabItem>
-    <TabItem Header="🃏 Flashcards">
-      <views:FlashcardsView DataContext="{Binding FlashcardsTab}" />
-    </TabItem>
+    </TabItem> 
   </TabControl>
 </UserControl>
