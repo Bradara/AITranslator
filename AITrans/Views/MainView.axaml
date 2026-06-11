@@ -12,7 +12,11 @@
     <TabItem Header="🃏 Flashcards">
       <views:FlashcardsView DataContext="{Binding FlashcardsTab}" />
     </TabItem>
-    
+
+    <TabItem Header="🧠 Memory">
+      <views:MemoryGameView DataContext="{Binding MemoryGameTab}" />
+    </TabItem>
+
     <TabItem Header="Markdown">
       <views:MarkdownView DataContext="{Binding MarkdownTab}" />
     </TabItem>

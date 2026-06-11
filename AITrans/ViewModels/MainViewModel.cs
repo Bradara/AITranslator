@@ -12,6 +12,7 @@ public partial class MainViewModel : ViewModelBase
     public MarkdownPreviewViewModel MarkdownPreviewTab { get; }
     public SettingsViewModel SettingsTab { get; }
     public FlashcardsViewModel FlashcardsTab { get; }
+    public MemoryGameViewModel MemoryGameTab { get; }
 
     public MainViewModel(SettingsService settingsService, ThemeService themeService)
     {
@@ -29,6 +30,7 @@ public partial class MainViewModel : ViewModelBase
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
         FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService);
+        MemoryGameTab = new MemoryGameViewModel(flashcardService);
     }
 
     public void SaveState()

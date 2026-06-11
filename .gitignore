@@ -452,3 +452,12 @@ $RECYCLE.BIN/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+##
+## AITrans local user data (API keys, chat history, translation cache)
+## Normally written to %APPDATA%/AITrans, but ignored here too in case
+## it ever ends up inside the repo during local development/debugging.
+##
+settings.json
+chat-history.json
+cache.db

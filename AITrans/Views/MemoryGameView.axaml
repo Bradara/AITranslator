@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AITrans.ViewModels"
+             xmlns:models="using:AITrans.Models"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+             x:Class="AITrans.Views.MemoryGameView"
+             x:DataType="vm:MemoryGameViewModel">
+
+  <DockPanel Margin="10">
+
+    <!-- ══ TOP: toolbar ══════════════════════════════════════════════════════ -->
+    <Border DockPanel.Dock="Top" Padding="0,0,0,8" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <TextBlock Text="Брой двойки:" VerticalAlignment="Center" />
+        <ComboBox ItemsSource="{Binding PairCountOptions}"
+                  SelectedItem="{Binding SelectedPairCount}"
+                  Width="80" />
+        <Button Content="🔀 Нова игра"
+                Command="{Binding StartNewGameCommand}"
+                ToolTip.Tip="Започни нова игра със същите думи" />
+        <Button Content="🔄 Презареди думите"
+                Command="{Binding ReloadCommand}"
+                ToolTip.Tip="Презареди колекцията от думи (ако са добавени нови карти)" />
+        <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,2" />
+        <TextBlock VerticalAlignment="Center" FontWeight="SemiBold">
+          <Run Text="Опити: " /><Run Text="{Binding Moves}" />
+        </TextBlock>
+        <TextBlock VerticalAlignment="Center" FontWeight="SemiBold">
+          <Run Text="Двойки: " /><Run Text="{Binding PairsFound}" /><Run Text=" / " /><Run Text="{Binding PairsTotal}" />
+        </TextBlock>
+        <TextBlock Text="{Binding StatusText}"
+                   VerticalAlignment="Center" Opacity="0.7" FontSize="12"
+                   TextWrapping="Wrap" MaxWidth="360" />
+      </StackPanel>
+    </Border>
+
+    <!-- ══ Empty state ══════════════════════════════════════════════════════ -->
+    <TextBlock IsVisible="{Binding !HasTiles}"
+               Text="Няма карти с попълнени Страна 1 и Страна 2. Добавете думи в панела с флашкарти и натиснете 'Презареди думите'."
+               HorizontalAlignment="Center" VerticalAlignment="Center"
+               Opacity="0.5" FontSize="16" TextAlignment="Center"
+               TextWrapping="Wrap" MaxWidth="500" />
+
+    <!-- ══ MAIN: board ══════════════════════════════════════════════════════ -->
+    <ScrollViewer IsVisible="{Binding HasTiles}">
+      <ItemsControl ItemsSource="{Binding Tiles}" Margin="0,12,0,0">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="models:MemoryTile">
+            <Button Width="150" Height="100" Margin="6"
+                    Command="{Binding $parent[UserControl].((vm:MemoryGameViewModel)DataContext).FlipTileCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    Background="{Binding TileBrush}"
+                    Foreground="White"
+                    IsHitTestVisible="{Binding !IsMatched}">
+              <TextBlock Text="{Binding DisplayText}"
+                         FontSize="18" FontWeight="SemiBold"
+                         TextWrapping="Wrap" TextAlignment="Center" />
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+  </DockPanel>
+</UserControl>

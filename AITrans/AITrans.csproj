@@ -27,5 +27,6 @@
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="ReverseMarkdown" />
     <PackageReference Include="Markdig" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 </Project>
