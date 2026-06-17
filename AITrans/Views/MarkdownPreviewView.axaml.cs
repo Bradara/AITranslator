@@ -451,27 +451,74 @@ public partial class MarkdownPreviewView : UserControl
 
     /// <summary>
     /// Returns the selected text from the active view (preview or raw editor).
-    /// In preview mode we read directly from SelectableTextBlock descendants
-    /// to avoid clipboard race conditions and focus-loss issues.
+    /// Markdown.Avalonia uses CTextBlock internally — we try multiple strategies
+    /// to extract the selection reliably.
     /// </summary>
-    private Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
+    private async Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
     {
         // Edit mode — TextBox exposes SelectedText directly.
         if (vm.IsEditMode)
         {
             var sel = RawEditor.SelectedText;
-            return Task.FromResult(string.IsNullOrEmpty(sel) ? null : (string?)sel);
+            return string.IsNullOrEmpty(sel) ? null : sel;
         }
 
-        // Preview mode — read selected text directly from SelectableTextBlock descendants.
-        var parts = MarkViewer.GetVisualDescendants()
+        // Strategy 1: Try SelectableTextBlock descendants (Avalonia built-in)
+        var selectableParts = MarkViewer.GetVisualDescendants()
             .OfType<SelectableTextBlock>()
             .Select(stb => stb.SelectedText)
             .Where(t => !string.IsNullOrEmpty(t))
             .ToList();
+        if (selectableParts.Count > 0)
+            return string.Join(" ", selectableParts).Trim();
 
-        var result = parts.Count > 0 ? string.Join(" ", parts).Trim() : null;
-        return Task.FromResult(result);
+        // Strategy 2: Try reading SelectedText via reflection on any text control
+        // (Markdown.Avalonia's CTextBlock or other custom types)
+        var reflectionParts = new List<string>();
+        foreach (var desc in MarkViewer.GetVisualDescendants())
+        {
+            var prop = desc.GetType().GetProperty("SelectedText");
+            if (prop?.GetValue(desc) is string s && !string.IsNullOrEmpty(s))
+                reflectionParts.Add(s);
+        }
+        if (reflectionParts.Count > 0)
+            return string.Join(" ", reflectionParts).Trim();
+
+        // Strategy 3: Clipboard bridge fallback — simulate Ctrl+C
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.Clipboard is null) return null;
+
+#pragma warning disable CS0618
+        var previousClipboard = await topLevel.Clipboard.GetTextAsync();
+        await topLevel.Clipboard.SetTextAsync(string.Empty);
+#pragma warning restore CS0618
+
+        MarkViewer.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Source = MarkViewer,
+            Key = Key.C,
+            KeyModifiers = KeyModifiers.Control,
+        });
+
+        await Task.Delay(100);
+
+#pragma warning disable CS0618
+        var selected = await topLevel.Clipboard.GetTextAsync();
+#pragma warning restore CS0618
+
+        if (string.IsNullOrEmpty(selected))
+        {
+            if (!string.IsNullOrEmpty(previousClipboard))
+            {
+#pragma warning disable CS0618
+                await topLevel.Clipboard.SetTextAsync(previousClipboard);
+#pragma warning restore CS0618
+            }
+            return null;
+        }
+
+        return selected.Trim();
     }
 
     private void OnChatInputKeyDown(object? sender, KeyEventArgs e)

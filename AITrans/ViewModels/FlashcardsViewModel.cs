@@ -220,12 +220,17 @@ public partial class FlashcardsViewModel : ViewModelBase
         FlashcardService flashcardService,
         SettingsService settingsService,
         TranslationService translationService,
-        SpeechService speechService)
+        SpeechService speechService,
+        ObservableCollection<WordListEntry> sharedWordList)
     {
         _flashcardService   = flashcardService;
         _settingsService    = settingsService;
         _translationService = translationService;
         _speechService      = speechService;
+
+        WordList = sharedWordList;
+        WordList.CollectionChanged += (_, _) => OnPropertyChanged(nameof(WordListCount));
+        if (WordList.Count > 0) IsWordListVisible = true;
 
         // Seed the front-language from the global speech source language setting
         var src = settingsService.Settings.SpeechSourceLanguage;
@@ -233,7 +238,6 @@ public partial class FlashcardsViewModel : ViewModelBase
             FrontLanguage = src;
 
         _ = LoadCardsAsync();
-        _ = LoadWordListAsync();
     }
 
     /// <summary>Exposes the service so the edit window can update/delete cards directly.</summary>
@@ -815,19 +819,6 @@ public partial class FlashcardsViewModel : ViewModelBase
 
     // ── Word list commands ────────────────────────────────────────────────────
 
-    private async Task LoadWordListAsync()
-    {
-        var entries = await _flashcardService.GetWordListAsync();
-        WordList = new ObservableCollection<WordListEntry>(entries);
-        OnPropertyChanged(nameof(WordListCount));
-    }
-
-    /// <summary>Reloads the word list from the database (called when switching to this tab).</summary>
-    public async Task RefreshWordListAsync()
-    {
-        await LoadWordListAsync();
-    }
-
     [RelayCommand]
     private void UseWord(WordListEntry entry)
     {
@@ -840,7 +831,6 @@ public partial class FlashcardsViewModel : ViewModelBase
     {
         await _flashcardService.DeleteWordEntryAsync(entry.Id);
         WordList.Remove(entry);
-        OnPropertyChanged(nameof(WordListCount));
     }
 
     [RelayCommand]
@@ -848,7 +838,6 @@ public partial class FlashcardsViewModel : ViewModelBase
     {
         await _flashcardService.ClearWordListAsync();
         WordList.Clear();
-        OnPropertyChanged(nameof(WordListCount));
         StatusText = "Списъкът с думи е изчистен.";
     }
 

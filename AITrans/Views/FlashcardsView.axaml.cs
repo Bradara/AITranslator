@@ -21,8 +21,8 @@ public partial class FlashcardsView : UserControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>() && Vm != null)
-            _ = Vm.RefreshWordListAsync();
+        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>() && Vm != null && Vm.WordList.Count > 0)
+            Vm.IsWordListVisible = true;
     }
 
     // ── Open "All cards" modal window ─────────────────────────────────────────

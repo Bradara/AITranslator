@@ -164,7 +164,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         CacheService cacheService,
         EpubExportService epubExportService,
         TranslationService translationService,
-        FlashcardService flashcardService)
+        FlashcardService flashcardService,
+        ObservableCollection<WordListEntry> sharedWordList)
     {
         _speechService = speechService;
         _settingsService = settingsService;
@@ -172,6 +173,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _epubExportService = epubExportService;
         _translationService = translationService;
         _flashcardService = flashcardService;
+
+        WordList = sharedWordList;
+        WordList.CollectionChanged += (_, _) => OnPropertyChanged(nameof(WordListCount));
 
         // Pre-populate language from settings if set
         var src = settingsService.Settings.SpeechSourceLanguage;
@@ -181,8 +185,6 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var defaultLang = settingsService.Settings.DefaultLanguage;
         if (!string.IsNullOrWhiteSpace(defaultLang) && AvailableLanguages.Contains(defaultLang))
             ChatLanguage = defaultLang;
-
-        _ = LoadWordListAsync();
     }
 
     // ──────────────────────────────────────────────────────
@@ -525,7 +527,6 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         };
         entry.Id = await _flashcardService.SaveWordEntryAsync(entry);
         WordList.Insert(0, entry);
-        OnPropertyChanged(nameof(WordListCount));
         StatusText = $"'{trimmed}' добавено в списъка с думи.";
     }
 
@@ -534,15 +535,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         await _flashcardService.DeleteWordEntryAsync(entry.Id);
         WordList.Remove(entry);
-        OnPropertyChanged(nameof(WordListCount));
     }
 
-    private async Task LoadWordListAsync()
-    {
-        var entries = await _flashcardService.GetWordListAsync();
-        WordList = new ObservableCollection<WordListEntry>(entries);
-        OnPropertyChanged(nameof(WordListCount));
-    }
 
     [RelayCommand]
     private void ClearContext()

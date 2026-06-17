@@ -1,4 +1,6 @@
-﻿using AITrans.Services;
+﻿using System.Collections.ObjectModel;
+using AITrans.Models;
+using AITrans.Services;
 
 namespace AITrans.ViewModels;
 
@@ -25,11 +27,14 @@ public partial class MainViewModel : ViewModelBase
         var ebookImportService = new EbookImportService();
         var flashcardService = new FlashcardService(cacheService);
 
+        // Shared word list — one collection used by both Preview and Flashcards
+        var sharedWordList = new ObservableCollection<WordListEntry>(cacheService.GetAllWordListEntries());
+
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
-        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService, flashcardService);
+        MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService, flashcardService, sharedWordList);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
-        FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService);
+        FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService, sharedWordList);
         MemoryGameTab = new MemoryGameViewModel(flashcardService);
     }
 
