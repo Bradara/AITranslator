@@ -97,13 +97,41 @@
           </StackPanel>
         </DockPanel>
 
-        <!-- ── Formatted Preview (default) ── -->
-        <md:MarkdownScrollViewer x:Name="MarkViewer"
-                                 x:CompileBindings="False"
-                                 Margin="0,0,4,0"
-                                 Markdown="{Binding MarkdownText}"
-                                 SelectionEnabled="True"
-                                 IsVisible="{Binding !IsEditMode}" />
+        <!-- ── Formatted Preview (default) — paginated ── -->
+        <DockPanel IsVisible="{Binding !IsEditMode}">
+          <!-- Page navigation bar -->
+          <Border DockPanel.Dock="Bottom" Padding="4" Margin="0,4,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+              <Button Content="|&#x276E;" FontSize="12" Padding="6,3"
+                      Command="{Binding FirstPageCommand}"
+                      ToolTip.Tip="Първа страница" />
+              <Button Content="&#x276E;" FontSize="12" Padding="6,3"
+                      Command="{Binding PreviousPageCommand}"
+                      ToolTip.Tip="Предишна страница" />
+              <TextBlock Text="{Binding PageIndicatorText}"
+                         VerticalAlignment="Center" FontWeight="SemiBold"
+                         MinWidth="60" TextAlignment="Center" />
+              <Button Content="&#x276F;" FontSize="12" Padding="6,3"
+                      Command="{Binding NextPageCommand}"
+                      ToolTip.Tip="Следваща страница" />
+              <Button Content="&#x276F;|" FontSize="12" Padding="6,3"
+                      Command="{Binding LastPageCommand}"
+                      ToolTip.Tip="Последна страница" />
+              <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+              <TextBlock Text="Стр:" VerticalAlignment="Center" FontSize="12" Opacity="0.65" />
+              <ComboBox ItemsSource="{Binding PageNumbers}"
+                        SelectedItem="{Binding SelectedPageNumber}"
+                        Width="70" FontSize="12"
+                        ToolTip.Tip="Избери страница за бърз достъп" />
+            </StackPanel>
+          </Border>
+
+          <md:MarkdownScrollViewer x:Name="MarkViewer"
+                                   x:CompileBindings="False"
+                                   Margin="0,0,4,0"
+                                   Markdown="{Binding CurrentPageMarkdown}"
+                                   SelectionEnabled="True" />
+        </DockPanel>
 
         <!-- ── Raw Markdown Editor (edit mode) ── -->
         <TextBox x:Name="RawEditor"
@@ -177,6 +205,20 @@
                     IsEnabled="{Binding !IsChatBusy}"
                     FontSize="11" Margin="0,0,4,4"
                     ToolTip.Tip="Направи обобщение на маркирания текст" />
+            <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="2,0" />
+            <Button Click="OnAddToWordListClick"
+                    FontSize="11" Margin="0,0,4,4"
+                    ToolTip.Tip="Добави маркираната дума/фраза в списъка за заучаване">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="📖 Добави дума" />
+                <Border Background="#1E88E5" CornerRadius="8" Padding="4,1" MinWidth="18"
+                        IsVisible="{Binding WordListCount}"
+                        VerticalAlignment="Center">
+                  <TextBlock Text="{Binding WordListCount}" Foreground="White"
+                             FontSize="10" TextAlignment="Center" />
+                </Border>
+              </StackPanel>
+            </Button>
             <Button Content="↵ Изпрати"
                     Command="{Binding SendChatCommand}"
                     IsEnabled="{Binding !IsChatBusy}"

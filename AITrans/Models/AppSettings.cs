@@ -99,6 +99,7 @@ public class AppSettings
     public Dictionary<string, int> PreviewLastReadParagraphByFile { get; set; } = [];
     public Dictionary<string, double> PreviewLastScrollRatioByFile { get; set; } = [];  // kept for backwards compat, no longer used for restore
     public Dictionary<string, double> PreviewLastScrollOffsetByFile { get; set; } = [];  // absolute pixel offset
+    public Dictionary<string, int> PreviewLastPageByFile { get; set; } = [];
 
     // Translation progress by file/session
     public Dictionary<string, int> MarkdownLastTranslatedIndexByFile { get; set; } = [];

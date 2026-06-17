@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -16,6 +17,13 @@ public partial class FlashcardsView : UserControl
     }
 
     private FlashcardsViewModel? Vm => DataContext as FlashcardsViewModel;
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>() && Vm != null)
+            _ = Vm.RefreshWordListAsync();
+    }
 
     // ── Open "All cards" modal window ─────────────────────────────────────────
 

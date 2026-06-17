@@ -50,11 +50,71 @@
           <Button Content="📋 Всички карти"
                   Click="OnShowAllCardsClick"
                   ToolTip.Tip="Отвори списъка с всички карти за преглед и редакция" />
+          <ToggleButton IsChecked="{Binding IsWordListVisible}"
+                        ToolTip.Tip="Покажи/скрий списъка с думи от Preview">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="📖 Думи" />
+              <Border Background="#1E88E5" CornerRadius="8" Padding="4,1" MinWidth="18"
+                      IsVisible="{Binding WordListCount}"
+                      VerticalAlignment="Center">
+                <TextBlock Text="{Binding WordListCount}" Foreground="White"
+                           FontSize="10" TextAlignment="Center" />
+              </Border>
+            </StackPanel>
+          </ToggleButton>
           <TextBlock Text="{Binding StatusText}"
                      VerticalAlignment="Center" Opacity="0.7" FontSize="12"
                      IsVisible="{Binding StatusText,
                          Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- ══ Word List panel ════════════════════════════════════════════════════ -->
+    <Border DockPanel.Dock="Top" Padding="0,4,0,4" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            IsVisible="{Binding IsWordListVisible}">
+      <StackPanel Spacing="4">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13">
+            <TextBlock.Text>
+              <MultiBinding StringFormat="📖 Списък с думи ({0})">
+                <Binding Path="WordListCount" />
+              </MultiBinding>
+            </TextBlock.Text>
+          </TextBlock>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+            <Button Content="🗑 Изчисти всички"
+                    Command="{Binding ClearWordListCommand}"
+                    FontSize="11" Padding="6,2"
+                    IsEnabled="{Binding WordListCount}"
+                    ToolTip.Tip="Изтрий всички думи от списъка" />
+          </StackPanel>
+        </DockPanel>
+        <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding WordList}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="models:WordListEntry">
+                <Border Padding="4,2" Margin="0,1" CornerRadius="4"
+                        Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="✕" FontSize="10" Padding="4,1"
+                            Command="{Binding $parent[UserControl].((vm:FlashcardsViewModel)DataContext).RemoveWordCommand}"
+                            CommandParameter="{Binding}"
+                            ToolTip.Tip="Премахни от списъка"
+                            Background="Transparent" BorderThickness="0" />
+                    <Button DockPanel.Dock="Right" Content="→ Зареди" FontSize="10" Padding="6,1" Margin="0,0,4,0"
+                            Command="{Binding $parent[UserControl].((vm:FlashcardsViewModel)DataContext).UseWordCommand}"
+                            CommandParameter="{Binding}"
+                            ToolTip.Tip="Зареди думата в полето 'Страна 1' за добавяне като карта" />
+                    <TextBlock Text="{Binding Word}" VerticalAlignment="Center"
+                               FontSize="13" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
       </StackPanel>
     </Border>
 

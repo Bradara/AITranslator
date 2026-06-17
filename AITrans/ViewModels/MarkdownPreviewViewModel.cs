@@ -22,6 +22,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private readonly CacheService _cacheService;
     private readonly EpubExportService _epubExportService;
     private readonly TranslationService _translationService;
+    private readonly FlashcardService _flashcardService;
     private CancellationTokenSource? _speechCts;
     private CancellationTokenSource? _chatCts;
     private readonly Stack<string> _navHistory = new();
@@ -31,6 +32,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     // List of (charStart in PlainText, plain paragraph text)
     private List<(int charStart, string text)> _paragraphSpans = [];
+    // Raw markdown paragraphs (unsplit, for pagination rendering)
+    private List<string> _rawParagraphs = [];
     private int _selectionStart;
     private double _lastScrollRatio;
 
@@ -40,6 +43,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _markdownText = "";
+
+    [ObservableProperty]
+    private string _currentPageMarkdown = "";
 
     [ObservableProperty]
     private string _plainText = "";
@@ -70,6 +76,36 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _hasUnsavedChanges;
+
+    // ──────────────────────────────────────────────────────
+    //  Observable properties — pagination
+    // ──────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private int _currentPage;
+
+    [ObservableProperty]
+    private int _totalPages = 1;
+
+    [ObservableProperty]
+    private int _paragraphsPerPage = 25;
+
+    [ObservableProperty]
+    private List<int> _pageNumbers = [1];
+
+    [ObservableProperty]
+    private int _selectedPageNumber = 1;
+
+    public string PageIndicatorText => TotalPages == 0 ? "0 / 0" : $"{CurrentPage + 1} / {TotalPages}";
+
+    // ──────────────────────────────────────────────────────
+    //  Observable properties — word list
+    // ──────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private ObservableCollection<WordListEntry> _wordList = [];
+
+    public int WordListCount => WordList.Count;
 
     // ──────────────────────────────────────────────────────
     //  Observable properties — preview/edit toggle
@@ -127,13 +163,15 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         SettingsService settingsService,
         CacheService cacheService,
         EpubExportService epubExportService,
-        TranslationService translationService)
+        TranslationService translationService,
+        FlashcardService flashcardService)
     {
         _speechService = speechService;
         _settingsService = settingsService;
         _cacheService = cacheService;
         _epubExportService = epubExportService;
         _translationService = translationService;
+        _flashcardService = flashcardService;
 
         // Pre-populate language from settings if set
         var src = settingsService.Settings.SpeechSourceLanguage;
@@ -143,6 +181,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var defaultLang = settingsService.Settings.DefaultLanguage;
         if (!string.IsNullOrWhiteSpace(defaultLang) && AvailableLanguages.Contains(defaultLang))
             ChatLanguage = defaultLang;
+
+        _ = LoadWordListAsync();
     }
 
     // ──────────────────────────────────────────────────────
@@ -212,6 +252,27 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         if (!_loadingFile)
             HasUnsavedChanges = true;
         BuildPlainText();
+        RebuildPages();
+    }
+
+    partial void OnCurrentPageChanged(int value)
+    {
+        RebuildCurrentPage();
+        SaveCurrentPageToSettings();
+        SelectedPageNumber = value + 1;
+        OnPropertyChanged(nameof(PageIndicatorText));
+    }
+
+    partial void OnSelectedPageNumberChanged(int value)
+    {
+        var pageIndex = value - 1;
+        if (pageIndex >= 0 && pageIndex < TotalPages && pageIndex != CurrentPage)
+            CurrentPage = pageIndex;
+    }
+
+    partial void OnParagraphsPerPageChanged(int value)
+    {
+        RebuildPages();
     }
 
     public void LoadFile(string path)
@@ -354,13 +415,20 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     // ──────────────────────────────────────────────────────
 
     [RelayCommand]
-    private async Task ReadAllAsync() => await SpeakFromIndexAsync(0);
+    private async Task ReadAllAsync()
+    {
+        // Read from the start of the current page
+        var pageOffset = CurrentPage * Math.Max(1, ParagraphsPerPage);
+        await SpeakFromIndexAsync(pageOffset);
+    }
 
     [RelayCommand]
     private async Task ReadFromSelectionAsync()
     {
         var idx = GetParagraphIndexFromChar(_selectionStart);
-        await SpeakFromIndexAsync(idx);
+        // In paginated mode, add page offset to get absolute paragraph index
+        var pageOffset = CurrentPage * Math.Max(1, ParagraphsPerPage);
+        await SpeakFromIndexAsync(pageOffset + idx);
     }
 
     [RelayCommand]
@@ -405,6 +473,75 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private void ToggleEditMode()
     {
         IsEditMode = !IsEditMode;
+    }
+
+    // ──────────────────────────────────────────────────────
+    //  Pagination commands
+    // ──────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private void NextPage()
+    {
+        if (CurrentPage < TotalPages - 1) CurrentPage++;
+    }
+
+    [RelayCommand]
+    private void PreviousPage()
+    {
+        if (CurrentPage > 0) CurrentPage--;
+    }
+
+    [RelayCommand]
+    private void FirstPage()
+    {
+        CurrentPage = 0;
+    }
+
+    [RelayCommand]
+    private void LastPage()
+    {
+        if (TotalPages > 0) CurrentPage = TotalPages - 1;
+    }
+
+    // ──────────────────────────────────────────────────────
+    //  Word list commands
+    // ──────────────────────────────────────────────────────
+
+    public async Task AddToWordListAsync(string word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return;
+        var trimmed = word.Trim();
+        if (WordList.Any(w => string.Equals(w.Word, trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusText = $"'{trimmed}' вече е в списъка.";
+            return;
+        }
+
+        var entry = new WordListEntry
+        {
+            Word = trimmed,
+            SourceFile = LoadedFilePath ?? "",
+            AddedAt = DateTime.UtcNow
+        };
+        entry.Id = await _flashcardService.SaveWordEntryAsync(entry);
+        WordList.Insert(0, entry);
+        OnPropertyChanged(nameof(WordListCount));
+        StatusText = $"'{trimmed}' добавено в списъка с думи.";
+    }
+
+    [RelayCommand]
+    private async Task RemoveFromWordList(WordListEntry entry)
+    {
+        await _flashcardService.DeleteWordEntryAsync(entry.Id);
+        WordList.Remove(entry);
+        OnPropertyChanged(nameof(WordListCount));
+    }
+
+    private async Task LoadWordListAsync()
+    {
+        var entries = await _flashcardService.GetWordListAsync();
+        WordList = new ObservableCollection<WordListEntry>(entries);
+        OnPropertyChanged(nameof(WordListCount));
     }
 
     [RelayCommand]
@@ -530,9 +667,15 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         var raw = MarkdownText.Replace("\r\n", "\n");
 
-        // Split on blank lines (paragraph boundaries)
-        var parts = raw.Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => StripMarkdown(p.Trim()))
+        // Split on blank lines (paragraph boundaries) — keep raw chunks for pagination
+        var rawChunks = raw.Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+        _rawParagraphs = rawChunks;
+
+        // Build plain text spans (stripped markdown for TTS)
+        var parts = rawChunks.Select(StripMarkdown)
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .ToList();
 
@@ -542,9 +685,71 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         {
             _paragraphSpans.Add((sb.Length, p));
             sb.AppendLine(p);
-            sb.AppendLine(); // blank separator so user sees paragraph breaks
+            sb.AppendLine();
         }
         PlainText = sb.ToString();
+    }
+
+    private void RebuildPages()
+    {
+        if (_rawParagraphs.Count == 0)
+        {
+            TotalPages = 1;
+            PageNumbers = [1];
+            CurrentPage = 0;
+            CurrentPageMarkdown = MarkdownText;
+            OnPropertyChanged(nameof(PageIndicatorText));
+            return;
+        }
+
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        TotalPages = (int)Math.Ceiling((double)_rawParagraphs.Count / perPage);
+        PageNumbers = Enumerable.Range(1, TotalPages).ToList();
+
+        // Restore saved page or clamp
+        if (_loadingFile)
+        {
+            var key = GetPreviewKey();
+            if (_settingsService.Settings.PreviewLastPageByFile.TryGetValue(key, out var savedPage))
+                CurrentPage = Math.Clamp(savedPage, 0, TotalPages - 1);
+            else
+                CurrentPage = 0;
+        }
+        else
+        {
+            CurrentPage = Math.Clamp(CurrentPage, 0, TotalPages - 1);
+        }
+
+        RebuildCurrentPage();
+        SelectedPageNumber = CurrentPage + 1;
+        OnPropertyChanged(nameof(PageIndicatorText));
+    }
+
+    private void RebuildCurrentPage()
+    {
+        if (_rawParagraphs.Count == 0)
+        {
+            CurrentPageMarkdown = MarkdownText;
+            return;
+        }
+
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        var startIdx = CurrentPage * perPage;
+        var count = Math.Min(perPage, _rawParagraphs.Count - startIdx);
+        if (startIdx >= _rawParagraphs.Count)
+        {
+            CurrentPageMarkdown = "";
+            return;
+        }
+
+        CurrentPageMarkdown = string.Join("\n\n", _rawParagraphs.GetRange(startIdx, count));
+    }
+
+    private void SaveCurrentPageToSettings()
+    {
+        var key = GetPreviewKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.PreviewLastPageByFile[key] = CurrentPage;
     }
 
     private static string StripMarkdown(string text)

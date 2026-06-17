@@ -101,6 +101,12 @@ public class CacheService
                 wrong_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS word_list (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                source_file TEXT NOT NULL DEFAULT '',
+                added_at TEXT NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
 
@@ -512,6 +518,52 @@ public class CacheService
         using var conn = Open();
         Execute(conn, "UPDATE flashcards SET rating = @rt WHERE id = @id",
             ("@rt", (int)rating), ("@id", id));
+    }
+
+    // ─── Word List ─────────────────────────────────────────────────────────
+
+    public int SaveWordListEntry(WordListEntry entry)
+    {
+        using var conn = Open();
+        Execute(conn,
+            "INSERT INTO word_list (word, source_file, added_at) VALUES (@w, @sf, @at)",
+            ("@w", entry.Word), ("@sf", entry.SourceFile), ("@at", entry.AddedAt.ToString("o")));
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT last_insert_rowid()";
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    public List<WordListEntry> GetAllWordListEntries()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, word, source_file, added_at FROM word_list ORDER BY added_at DESC";
+        using var r = cmd.ExecuteReader();
+        var list = new List<WordListEntry>();
+        while (r.Read())
+        {
+            list.Add(new WordListEntry
+            {
+                Id = r.GetInt32(0),
+                Word = r.GetString(1),
+                SourceFile = r.GetString(2),
+                AddedAt = DateTime.Parse(r.GetString(3))
+            });
+        }
+        return list;
+    }
+
+    public void DeleteWordListEntry(int id)
+    {
+        using var conn = Open();
+        Execute(conn, "DELETE FROM word_list WHERE id = @id", ("@id", id));
+    }
+
+    public void ClearWordList()
+    {
+        using var conn = Open();
+        Execute(conn, "DELETE FROM word_list");
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────

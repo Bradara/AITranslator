@@ -170,6 +170,16 @@ public partial class FlashcardsViewModel : ViewModelBase
     public string[] AvailableLanguages { get; } =
         ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
+    // ── Word list state ─────────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private ObservableCollection<WordListEntry> _wordList = [];
+
+    [ObservableProperty]
+    private bool _isWordListVisible;
+
+    public int WordListCount => WordList.Count;
+
     // ── UI state ──────────────────────────────────────────────────────────────
 
     [ObservableProperty]
@@ -223,6 +233,7 @@ public partial class FlashcardsViewModel : ViewModelBase
             FrontLanguage = src;
 
         _ = LoadCardsAsync();
+        _ = LoadWordListAsync();
     }
 
     /// <summary>Exposes the service so the edit window can update/delete cards directly.</summary>
@@ -800,5 +811,50 @@ public partial class FlashcardsViewModel : ViewModelBase
             _speechCts?.Dispose();
             _speechCts = null;
         }
+    }
+
+    // ── Word list commands ────────────────────────────────────────────────────
+
+    private async Task LoadWordListAsync()
+    {
+        var entries = await _flashcardService.GetWordListAsync();
+        WordList = new ObservableCollection<WordListEntry>(entries);
+        OnPropertyChanged(nameof(WordListCount));
+    }
+
+    /// <summary>Reloads the word list from the database (called when switching to this tab).</summary>
+    public async Task RefreshWordListAsync()
+    {
+        await LoadWordListAsync();
+    }
+
+    [RelayCommand]
+    private void UseWord(WordListEntry entry)
+    {
+        NewFrontText = entry.Word;
+        StatusText = $"'{entry.Word}' заредено в Страна 1. Натиснете 'Генерирай с AI' или попълнете ръчно.";
+    }
+
+    [RelayCommand]
+    private async Task RemoveWord(WordListEntry entry)
+    {
+        await _flashcardService.DeleteWordEntryAsync(entry.Id);
+        WordList.Remove(entry);
+        OnPropertyChanged(nameof(WordListCount));
+    }
+
+    [RelayCommand]
+    private async Task ClearWordList()
+    {
+        await _flashcardService.ClearWordListAsync();
+        WordList.Clear();
+        OnPropertyChanged(nameof(WordListCount));
+        StatusText = "Списъкът с думи е изчистен.";
+    }
+
+    [RelayCommand]
+    private void ToggleWordList()
+    {
+        IsWordListVisible = !IsWordListVisible;
     }
 }

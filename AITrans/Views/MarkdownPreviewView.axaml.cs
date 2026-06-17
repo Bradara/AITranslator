@@ -135,6 +135,10 @@ public partial class MarkdownPreviewView : UserControl
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.PreviewFontSize))
             ApplyFontSizeStyles(vm.PreviewFontSize);
 
+        // Scroll preview to top when page changes
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.CurrentPage))
+            Dispatcher.UIThread.Post(ScrollPreviewToTop, DispatcherPriority.Loaded);
+
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.ScrollToParagraph) && vm.ScrollToParagraph >= 0)
         {
             _pendingScrollParagraph = vm.ScrollToParagraph;
@@ -381,9 +385,21 @@ public partial class MarkdownPreviewView : UserControl
             vm.ChatInput = text;
     }
 
-    // ── Quick-action buttons: Translate / Explain / Summarize ───────────────
+    // ── Quick-action buttons ────────────────────────────────────────────────
     // These operate on the currently selected text in the preview or raw editor.
     // If ChatInput is non-empty it enriches the prompt as additional instructions.
+
+    private async void OnAddToWordListClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var text = await GetViewerSelectedTextAsync(vm);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Маркирай дума или фраза в прегледа, след което натисни 'Добави дума'.";
+            return;
+        }
+        await vm.AddToWordListAsync(text);
+    }
 
     private async void OnTranslateClick(object? sender, RoutedEventArgs e)
     {
@@ -435,54 +451,27 @@ public partial class MarkdownPreviewView : UserControl
 
     /// <summary>
     /// Returns the selected text from the active view (preview or raw editor).
-    /// In preview mode the clipboard is used as a bridge: the MarkdownScrollViewer
-    /// copies its selection to the clipboard on Ctrl+C, so we trigger that
-    /// programmatically and read back the result.
+    /// In preview mode we read directly from SelectableTextBlock descendants
+    /// to avoid clipboard race conditions and focus-loss issues.
     /// </summary>
-    private async Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
+    private Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
     {
         // Edit mode — TextBox exposes SelectedText directly.
         if (vm.IsEditMode)
         {
             var sel = RawEditor.SelectedText;
-            return string.IsNullOrEmpty(sel) ? null : sel;
+            return Task.FromResult(string.IsNullOrEmpty(sel) ? null : (string?)sel);
         }
 
-        // Preview mode — use clipboard bridge.
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel?.Clipboard is null) return null;
+        // Preview mode — read selected text directly from SelectableTextBlock descendants.
+        var parts = MarkViewer.GetVisualDescendants()
+            .OfType<SelectableTextBlock>()
+            .Select(stb => stb.SelectedText)
+            .Where(t => !string.IsNullOrEmpty(t))
+            .ToList();
 
-#pragma warning disable CS0618
-        var previousClipboard = await topLevel.Clipboard.GetTextAsync();
-        // Clear so we can detect whether the viewer actually wrote something.
-        await topLevel.Clipboard.SetTextAsync(string.Empty);
-#pragma warning restore CS0618
-
-        // Raise Ctrl+C on the MarkdownScrollViewer to trigger its internal copy logic.
-        MarkViewer.RaiseEvent(new KeyEventArgs
-        {
-            RoutedEvent = InputElement.KeyDownEvent,
-            Source = MarkViewer,
-            Key = Key.C,
-            KeyModifiers = KeyModifiers.Control,
-        });
-
-        // Allow the fire-and-forget SetTextAsync inside MarkdownScrollViewer to complete.
-        await Task.Delay(50);
-
-#pragma warning disable CS0618
-        var selected = await topLevel.Clipboard.GetTextAsync();
-#pragma warning restore CS0618
-
-        if (string.IsNullOrEmpty(selected))
-        {
-            // Nothing was selected — restore the user's previous clipboard content.
-            if (!string.IsNullOrEmpty(previousClipboard))
-                await topLevel.Clipboard.SetTextAsync(previousClipboard);
-            return null;
-        }
-
-        return selected;
+        var result = parts.Count > 0 ? string.Join(" ", parts).Trim() : null;
+        return Task.FromResult(result);
     }
 
     private void OnChatInputKeyDown(object? sender, KeyEventArgs e)
@@ -493,6 +482,14 @@ public partial class MarkdownPreviewView : UserControl
             vm.SendChatCommand.Execute(null);
             e.Handled = true;
         }
+    }
+
+    private void ScrollPreviewToTop()
+    {
+        if (_previewScroll is null)
+            _previewScroll = FindPreviewScrollViewer();
+        if (_previewScroll is not null)
+            _previewScroll.Offset = new Vector(_previewScroll.Offset.X, 0);
     }
 
     private void ScrollChatToBottom()

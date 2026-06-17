@@ -126,6 +126,26 @@ public class FlashcardService
         return ParseAiResponse(response);
     }
 
+    // ─── Word List ────────────────────────────────────────────────────────────
+
+    public Task<List<WordListEntry>> GetWordListAsync() =>
+        Task.FromResult(_cacheService.GetAllWordListEntries());
+
+    public Task<int> SaveWordEntryAsync(WordListEntry entry) =>
+        Task.FromResult(_cacheService.SaveWordListEntry(entry));
+
+    public Task DeleteWordEntryAsync(int id)
+    {
+        _cacheService.DeleteWordListEntry(id);
+        return Task.CompletedTask;
+    }
+
+    public Task ClearWordListAsync()
+    {
+        _cacheService.ClearWordList();
+        return Task.CompletedTask;
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static (string Back, string Usage) ParseAiResponse(string json)
