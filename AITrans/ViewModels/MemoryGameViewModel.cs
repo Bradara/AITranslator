@@ -21,13 +21,12 @@ public partial class MemoryGameViewModel : ViewModelBase
     private readonly FlashcardService _flashcardService;
     private static readonly Random _rng = new();
 
-    /// <summary>Distinct colors assigned round-robin to pairs so each found pair stands out
-    /// from the others once matched (instead of every match looking the same).</summary>
     private static readonly string[] PairColors =
     [
         "#E74C3C", "#2ECC71", "#F1C40F", "#9B59B6", "#1ABC9C", "#E67E22",
         "#FF6B9D", "#16A085", "#D35400", "#8E44AD", "#27AE60", "#2980B9",
-        "#C0392B", "#F39C12", "#3F51B5", "#795548"
+        "#C0392B", "#F39C12", "#3F51B5", "#795548", "#00BCD4", "#FF5722",
+        "#4CAF50", "#673AB7"
     ];
 
     private List<FlashCard> _sourceCards = [];
@@ -39,7 +38,12 @@ public partial class MemoryGameViewModel : ViewModelBase
     [ObservableProperty]
     private int _selectedPairCount = 8;
 
-    public int[] PairCountOptions { get; } = [4, 6, 8, 10, 12, 16];
+    public int[] PairCountOptions { get; } = [4, 6, 8, 10, 12, 16, 20];
+
+    [ObservableProperty]
+    private DifficultyOption _selectedDifficulty = DifficultyOption.Options[1]; // Unlearned
+
+    public DifficultyOption[] DifficultyOptions { get; } = DifficultyOption.Options;
 
     [ObservableProperty]
     private int _pairsTotal;
@@ -82,7 +86,9 @@ public partial class MemoryGameViewModel : ViewModelBase
     [RelayCommand]
     private void StartNewGame()
     {
-        if (_sourceCards.Count == 0)
+        var filtered = FilterByDifficulty(_sourceCards, SelectedDifficulty.Level);
+
+        if (filtered.Count == 0)
         {
             Tiles = [];
             PairsTotal = 0;
@@ -90,14 +96,19 @@ public partial class MemoryGameViewModel : ViewModelBase
             Moves = 0;
             _firstSelection = null;
             IsBoardLocked = false;
-            StatusText = "Няма карти с попълнени Страна 1 и Страна 2. Добавете думи в панела с флашкарти.";
+            StatusText = SelectedDifficulty.Level switch
+            {
+                DifficultyLevel.NewAndHard => "Няма нови или трудни карти. Опитайте друго ниво.",
+                DifficultyLevel.LearnedOnly => "Няма научени карти. Първо упражнявайте с флашкартите.",
+                _ => "Няма карти с попълнени Страна 1 и Страна 2. Добавете думи в панела с флашкарти."
+            };
             OnPropertyChanged(nameof(HasTiles));
             OnPropertyChanged(nameof(IsGameComplete));
             return;
         }
 
-        int count = Math.Min(SelectedPairCount, _sourceCards.Count);
-        var chosen = _sourceCards.OrderBy(_ => _rng.Next()).Take(count).ToList();
+        int count = Math.Min(SelectedPairCount, filtered.Count);
+        var chosen = PrioritizeByDifficulty(filtered, SelectedDifficulty.Level, count);
 
         var tiles = new List<MemoryTile>(count * 2);
         for (int i = 0; i < chosen.Count; i++)
@@ -121,6 +132,7 @@ public partial class MemoryGameViewModel : ViewModelBase
     }
 
     partial void OnSelectedPairCountChanged(int value) => StartNewGame();
+    partial void OnSelectedDifficultyChanged(DifficultyOption value) => StartNewGame();
 
     [RelayCommand]
     private async Task FlipTile(MemoryTile tile)
@@ -160,4 +172,47 @@ public partial class MemoryGameViewModel : ViewModelBase
             IsBoardLocked = false;
         }
     }
+
+    private static List<FlashCard> FilterByDifficulty(List<FlashCard> cards, DifficultyLevel level) =>
+        level switch
+        {
+            DifficultyLevel.NewAndHard => cards.Where(c => c.Rating is CardRating.New or CardRating.Hard).ToList(),
+            DifficultyLevel.Unlearned => cards.Where(c => c.Rating != CardRating.Learned).ToList(),
+            DifficultyLevel.LearnedOnly => cards.Where(c => c.Rating == CardRating.Learned).ToList(),
+            _ => cards
+        };
+
+    private static List<FlashCard> PrioritizeByDifficulty(List<FlashCard> cards, DifficultyLevel level, int count)
+    {
+        if (level == DifficultyLevel.All)
+            return cards.OrderBy(_ => _rng.Next()).Take(count).ToList();
+
+        return cards
+            .OrderByDescending(c => c.DifficultyScore)
+            .ThenBy(c => c.Rating)
+            .ThenBy(_ => _rng.Next())
+            .Take(count)
+            .ToList();
+    }
+}
+
+public enum DifficultyLevel
+{
+    NewAndHard,
+    Unlearned,
+    All,
+    LearnedOnly
+}
+
+public record DifficultyOption(DifficultyLevel Level, string DisplayName)
+{
+    public static readonly DifficultyOption[] Options =
+    [
+        new(DifficultyLevel.NewAndHard,  "🔴 Нови и трудни"),
+        new(DifficultyLevel.Unlearned,   "🟡 Незаучени"),
+        new(DifficultyLevel.All,         "🔵 Всички"),
+        new(DifficultyLevel.LearnedOnly, "🟢 Само научени"),
+    ];
+
+    public override string ToString() => DisplayName;
 }

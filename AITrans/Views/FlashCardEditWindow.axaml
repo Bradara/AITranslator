@@ -15,7 +15,17 @@
     <!-- Header -->
     <TextBlock DockPanel.Dock="Top"
                Text="Редактирай или изтрий карти. Промените се запазват при затваряне на реда."
-               FontSize="13" Opacity="0.65" Margin="0,0,0,10" />
+               FontSize="13" Opacity="0.65" Margin="0,0,0,6" />
+
+    <!-- Search bar -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+      <TextBox x:Name="SearchBox" Grid.Column="0"
+               Watermark="🔍 Търсене по дума, превод или употреба…"
+               TextChanged="OnSearchTextChanged" />
+      <Button Grid.Column="1" Content="✕" Margin="6,0,0,0"
+              ToolTip.Tip="Изчисти търсенето"
+              Click="OnClearSearchClick" />
+    </Grid>
 
     <!-- Bottom buttons -->
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
@@ -29,13 +39,15 @@
               AutoGenerateColumns="False"
               CanUserReorderColumns="False"
               CanUserResizeColumns="True"
+              CanUserSortColumns="True"
               GridLinesVisibility="Horizontal"
               IsReadOnly="False"
               RowHeight="72"
+              Sorting="OnColumnSorting"
               CellEditEnding="OnCellEditEnding">
       <DataGrid.Columns>
         <!-- Страна 1 -->
-        <DataGridTemplateColumn Header="Страна 1 — дума / израз" Width="*">
+        <DataGridTemplateColumn Header="Страна 1 — дума / израз" Width="*" SortMemberPath="FrontText" CanUserSort="True">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate>
               <TextBlock Text="{Binding FrontText}" TextWrapping="Wrap"
@@ -52,7 +64,7 @@
           </DataGridTemplateColumn.CellEditingTemplate>
         </DataGridTemplateColumn>
         <!-- Страна 2 -->
-        <DataGridTemplateColumn Header="Страна 2 — превод (BG)" Width="*">
+        <DataGridTemplateColumn Header="Страна 2 — превод (BG)" Width="*" SortMemberPath="BackText" CanUserSort="True">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate>
               <TextBlock Text="{Binding BackText}" TextWrapping="Wrap"
@@ -69,7 +81,7 @@
           </DataGridTemplateColumn.CellEditingTemplate>
         </DataGridTemplateColumn>
         <!-- Страна 3 -->
-        <DataGridTemplateColumn Header="Страна 3 — употреба" Width="*">
+        <DataGridTemplateColumn Header="Страна 3 — употреба" Width="*" SortMemberPath="UsageText" CanUserSort="True">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate>
               <TextBlock Text="{Binding UsageText}" TextWrapping="Wrap"
@@ -85,10 +97,10 @@
             </DataTemplate>
           </DataGridTemplateColumn.CellEditingTemplate>
         </DataGridTemplateColumn>
-        <DataGridTextColumn Header="✓" Binding="{Binding CorrectCount}" Width="40" IsReadOnly="True" />
-        <DataGridTextColumn Header="✗" Binding="{Binding WrongCount}"   Width="40" IsReadOnly="True" />
+        <DataGridTextColumn Header="✓" Binding="{Binding CorrectCount}" Width="40" IsReadOnly="True" CanUserSort="True" SortMemberPath="CorrectCount" />
+        <DataGridTextColumn Header="✗" Binding="{Binding WrongCount}"   Width="40" IsReadOnly="True" CanUserSort="True" SortMemberPath="WrongCount" />
         <!-- Rating column — editable so Learned cards can be reset -->
-        <DataGridTemplateColumn Header="Рейтинг" Width="130">
+        <DataGridTemplateColumn Header="Рейтинг" Width="130" SortMemberPath="Rating" CanUserSort="True">
           <DataGridTemplateColumn.CellTemplate>
             <DataTemplate>
               <TextBlock Text="{Binding Rating}" VerticalAlignment="Center" Margin="8,0" />

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -22,6 +24,11 @@ public partial class FlashCardEditWindow : Window
     private readonly FlashcardService _service;
     private readonly ObservableCollection<FlashCard> _cards;
 
+    // Current search term and sort state
+    private string _search = "";
+    private string _sortProperty = "";
+    private bool   _sortAscending = true;
+
     // Parameterless ctor required by Avalonia XAML compiler
     public FlashCardEditWindow()
     {
@@ -35,10 +42,73 @@ public partial class FlashCardEditWindow : Window
         _service = service;
         _cards   = cards;
         InitializeComponent();
-        CardsGrid.ItemsSource = _cards;
+        ApplyView();
     }
 
-    // ── Cell key handling ────────────────────────────────────────────────
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        _search = SearchBox.Text ?? "";
+        ApplyView();
+    }
+
+    private void OnClearSearchClick(object? sender, RoutedEventArgs e)
+    {
+        SearchBox.Text = "";   // triggers OnSearchTextChanged
+    }
+
+    // ── Sorting ───────────────────────────────────────────────────────────────
+
+    private void OnColumnSorting(object? sender, DataGridColumnEventArgs e)
+    {
+        var prop = e.Column.SortMemberPath;
+        if (string.IsNullOrEmpty(prop)) return;
+
+        if (_sortProperty == prop)
+            _sortAscending = !_sortAscending;
+        else
+        {
+            _sortProperty  = prop;
+            _sortAscending = true;
+        }
+
+        ApplyView();
+        e.Handled = true; // prevent default sort (we manage ItemsSource ourselves)
+    }
+
+    // ── Filter + sort → rebind ────────────────────────────────────────────────
+
+    private void ApplyView()
+    {
+        IEnumerable<FlashCard> view = _cards;
+
+        // Filter
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var term = _search.Trim();
+            view = view.Where(c =>
+                c.FrontText.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                c.BackText .Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                c.UsageText.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Sort
+        view = _sortProperty switch
+        {
+            nameof(FlashCard.FrontText)    => _sortAscending ? view.OrderBy(c => c.FrontText)    : view.OrderByDescending(c => c.FrontText),
+            nameof(FlashCard.BackText)     => _sortAscending ? view.OrderBy(c => c.BackText)     : view.OrderByDescending(c => c.BackText),
+            nameof(FlashCard.UsageText)    => _sortAscending ? view.OrderBy(c => c.UsageText)    : view.OrderByDescending(c => c.UsageText),
+            nameof(FlashCard.CorrectCount) => _sortAscending ? view.OrderBy(c => c.CorrectCount) : view.OrderByDescending(c => c.CorrectCount),
+            nameof(FlashCard.WrongCount)   => _sortAscending ? view.OrderBy(c => c.WrongCount)   : view.OrderByDescending(c => c.WrongCount),
+            nameof(FlashCard.Rating)       => _sortAscending ? view.OrderBy(c => c.Rating)       : view.OrderByDescending(c => c.Rating),
+            _ => view
+        };
+
+        CardsGrid.ItemsSource = view.ToList();
+    }
+
+    // ── Cell key handling ─────────────────────────────────────────────────────
 
     /// <summary>
     /// Ctrl+Enter inserts a newline at the caret.
@@ -53,23 +123,22 @@ public partial class FlashCardEditWindow : Window
             var text = tb.Text ?? "";
             tb.Text       = text.Insert(idx, "\n");
             tb.CaretIndex = idx + 1;
-            e.Handled     = true; // prevent DataGrid from committing
+            e.Handled     = true;
         }
-        // plain Enter: not handled — DataGrid commits and moves to next row
     }
 
     // ── Cell edit committed ───────────────────────────────────────────────────
 
     private async void OnCellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
-        // Only persist on commit (not cancel)
         if (e.EditAction != DataGridEditAction.Commit) return;
         if (e.Row.DataContext is not FlashCard card) return;
 
-        // Avalonia fires CellEditEnding before the binding is written back,
-        // so we need to post the save to the dispatcher to run after commit.
         await Task.Yield();
         await _service.UpdateCardAsync(card);
+
+        // Refresh view to reflect any text changes in the filter
+        ApplyView();
     }
 
     // ── Delete button ─────────────────────────────────────────────────────────
@@ -81,6 +150,7 @@ public partial class FlashCardEditWindow : Window
 
         await _service.DeleteCardAsync(card.Id);
         _cards.Remove(card);
+        ApplyView();
     }
 
     // ── Close ─────────────────────────────────────────────────────────────────

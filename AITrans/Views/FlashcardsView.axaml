@@ -8,6 +8,14 @@
              x:Class="AITrans.Views.FlashcardsView"
              x:DataType="vm:FlashcardsViewModel">
 
+  <UserControl.Styles>
+    <Style Selector="Button.activeRating">
+      <Setter Property="BorderBrush" Value="#1E88E5" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Background" Value="#331E88E5" />
+    </Style>
+  </UserControl.Styles>
+
   <DockPanel Margin="10">
 
     <!-- ══ TOP: Add card form ═══════════════════════════════════════════════ -->
@@ -268,10 +276,10 @@
           <StackPanel IsVisible="{Binding ShowFlipRating}"
                       Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
             <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
-            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
-            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
-            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
-            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет"    Classes.activeRating="{Binding IsCurrentRatingHard}" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" Classes.activeRating="{Binding IsCurrentRatingNormal}" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет"    Classes.activeRating="{Binding IsCurrentRatingEasy}" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете"    Classes.activeRating="{Binding IsCurrentRatingLearned}" />
           </StackPanel>
         </StackPanel>
       </Border>
@@ -330,10 +338,10 @@
             <!-- Rating buttons replace "next card" in quiz mode -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
               <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
-              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
-              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
-              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
-              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет"    Classes.activeRating="{Binding IsCurrentRatingHard}" />
+              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" Classes.activeRating="{Binding IsCurrentRatingNormal}" />
+              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет"    Classes.activeRating="{Binding IsCurrentRatingEasy}" />
+              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете"    Classes.activeRating="{Binding IsCurrentRatingLearned}" />
             </StackPanel>
           </StackPanel>
 
@@ -397,10 +405,10 @@
           <StackPanel IsVisible="{Binding IsMcAnswerSubmitted}"
                       Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
             <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
-            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
-            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
-            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
-            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет"    Classes.activeRating="{Binding IsCurrentRatingHard}" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" Classes.activeRating="{Binding IsCurrentRatingNormal}" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет"    Classes.activeRating="{Binding IsCurrentRatingEasy}" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете"    Classes.activeRating="{Binding IsCurrentRatingLearned}" />
           </StackPanel>
 
         </StackPanel>
@@ -461,10 +469,10 @@
             <!-- Rating buttons replace "next card" in listen mode -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
               <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
-              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
-              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
-              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
-              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+              <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет"    Classes.activeRating="{Binding IsCurrentRatingHard}" />
+              <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" Classes.activeRating="{Binding IsCurrentRatingNormal}" />
+              <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет"    Classes.activeRating="{Binding IsCurrentRatingEasy}" />
+              <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете"    Classes.activeRating="{Binding IsCurrentRatingLearned}" />
             </StackPanel>
           </StackPanel>
 
@@ -531,10 +539,10 @@
           <StackPanel IsVisible="{Binding IsMcAnswerSubmitted}"
                       Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
             <TextBlock Text="Оцени:" VerticalAlignment="Center" Opacity="0.65" FontSize="13" />
-            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет" />
-            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" />
-            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет" />
-            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете" />
+            <Button Content="💪 Трудна"  Command="{Binding RateHardCommand}"    ToolTip.Tip="Показва се с висок приоритет"    Classes.activeRating="{Binding IsCurrentRatingHard}" />
+            <Button Content="😐 Нормална" Command="{Binding RateNormalCommand}"  ToolTip.Tip="Показва се с нормален приоритет" Classes.activeRating="{Binding IsCurrentRatingNormal}" />
+            <Button Content="😊 Лесна"   Command="{Binding RateEasyCommand}"    ToolTip.Tip="Показва се с нисък приоритет"    Classes.activeRating="{Binding IsCurrentRatingEasy}" />
+            <Button Content="✅ Заучена" Command="{Binding RateLearnedCommand}" ToolTip.Tip="Изключва картата от тестовете"    Classes.activeRating="{Binding IsCurrentRatingLearned}" />
           </StackPanel>
 
         </StackPanel>

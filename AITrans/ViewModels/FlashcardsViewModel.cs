@@ -107,6 +107,11 @@ public partial class FlashcardsViewModel : ViewModelBase
     /// <summary>Show rating buttons in flip mode after the back has been revealed at least once.</summary>
     public bool ShowFlipRating     => Mode == FlashcardMode.Flip && HasCards && CurrentSide >= 1;
 
+    public bool IsCurrentRatingHard    => CurrentCard?.Rating == CardRating.Hard;
+    public bool IsCurrentRatingNormal  => CurrentCard?.Rating == CardRating.Normal;
+    public bool IsCurrentRatingEasy    => CurrentCard?.Rating == CardRating.Easy;
+    public bool IsCurrentRatingLearned => CurrentCard?.Rating == CardRating.Learned;
+
     /// <summary>Number of cards excluded from the deck because they are marked Learned.</summary>
     public int LearnedCount        => Cards.Count(c => c.Rating == CardRating.Learned);
     public int ActiveCount         => QuizDeck.Count;
@@ -327,6 +332,10 @@ public partial class FlashcardsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowListenCard));
         OnPropertyChanged(nameof(ShowListenChoice));
         OnPropertyChanged(nameof(ShowFlipRating));
+        OnPropertyChanged(nameof(IsCurrentRatingHard));
+        OnPropertyChanged(nameof(IsCurrentRatingNormal));
+        OnPropertyChanged(nameof(IsCurrentRatingEasy));
+        OnPropertyChanged(nameof(IsCurrentRatingLearned));
 
         if (IsChoiceMode)
             BuildChoices();
