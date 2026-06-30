@@ -86,7 +86,7 @@ public partial class MemoryGameViewModel : ViewModelBase
     [RelayCommand]
     private void StartNewGame()
     {
-        var filtered = FilterByDifficulty(_sourceCards, SelectedDifficulty.Level);
+        var filtered = DifficultyFilter.Filter(_sourceCards, SelectedDifficulty.Level);
 
         if (filtered.Count == 0)
         {
@@ -173,15 +173,6 @@ public partial class MemoryGameViewModel : ViewModelBase
         }
     }
 
-    private static List<FlashCard> FilterByDifficulty(List<FlashCard> cards, DifficultyLevel level) =>
-        level switch
-        {
-            DifficultyLevel.NewAndHard => cards.Where(c => c.Rating is CardRating.New or CardRating.Hard).ToList(),
-            DifficultyLevel.Unlearned => cards.Where(c => c.Rating != CardRating.Learned).ToList(),
-            DifficultyLevel.LearnedOnly => cards.Where(c => c.Rating == CardRating.Learned).ToList(),
-            _ => cards
-        };
-
     private static List<FlashCard> PrioritizeByDifficulty(List<FlashCard> cards, DifficultyLevel level, int count)
     {
         if (level == DifficultyLevel.All)
@@ -194,25 +185,4 @@ public partial class MemoryGameViewModel : ViewModelBase
             .Take(count)
             .ToList();
     }
-}
-
-public enum DifficultyLevel
-{
-    NewAndHard,
-    Unlearned,
-    All,
-    LearnedOnly
-}
-
-public record DifficultyOption(DifficultyLevel Level, string DisplayName)
-{
-    public static readonly DifficultyOption[] Options =
-    [
-        new(DifficultyLevel.NewAndHard,  "🔴 Нови и трудни"),
-        new(DifficultyLevel.Unlearned,   "🟡 Незаучени"),
-        new(DifficultyLevel.All,         "🔵 Всички"),
-        new(DifficultyLevel.LearnedOnly, "🟢 Само научени"),
-    ];
-
-    public override string ToString() => DisplayName;
 }

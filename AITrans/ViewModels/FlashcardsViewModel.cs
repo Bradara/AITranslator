@@ -56,6 +56,13 @@ public partial class FlashcardsViewModel : ViewModelBase
     [ObservableProperty]
     private FlashcardMode _mode = FlashcardMode.Flip;
 
+    // ── Difficulty filter ────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private DifficultyOption _selectedDifficulty = DifficultyOption.Options[1]; // Unlearned (previous default behavior)
+
+    public DifficultyOption[] DifficultyOptions { get; } = DifficultyOption.Options;
+
     // RadioButton helpers – only setter with value==true changes the mode
     public bool IsFlipMode
     {
@@ -262,7 +269,7 @@ public partial class FlashcardsViewModel : ViewModelBase
 
     private void BuildQuizDeck()
     {
-        var filtered = Cards.Where(c => c.Rating != CardRating.Learned).ToList();
+        var filtered = DifficultyFilter.Filter(Cards, SelectedDifficulty.Level);
         QuizDeck = [.. InterleaveByRating(filtered)];
         CurrentIndex = 0;
         OnPropertyChanged(nameof(LearnedCount));
@@ -365,6 +372,8 @@ public partial class FlashcardsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowFlipRating));
         BuildQuizDeck();
     }
+
+    partial void OnSelectedDifficultyChanged(DifficultyOption value) => BuildQuizDeck();
 
     partial void OnReverseQuizDirectionChanged(bool value)
     {

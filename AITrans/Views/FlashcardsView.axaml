@@ -70,6 +70,12 @@
               </Border>
             </StackPanel>
           </ToggleButton>
+          <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,2" />
+          <TextBlock Text="Ниво:" VerticalAlignment="Center" />
+          <ComboBox ItemsSource="{Binding DifficultyOptions}"
+                    SelectedItem="{Binding SelectedDifficulty}"
+                    Width="170"
+                    ToolTip.Tip="Филтрира кои думи участват в заучаването според рейтинга им" />
           <TextBlock Text="{Binding StatusText}"
                      VerticalAlignment="Center" Opacity="0.7" FontSize="12"
                      IsVisible="{Binding StatusText,
