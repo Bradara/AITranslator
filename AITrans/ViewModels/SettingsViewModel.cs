@@ -23,6 +23,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsGroq))]
     [NotifyPropertyChangedFor(nameof(IsOllama))]
+    [NotifyPropertyChangedFor(nameof(IsNvidia))]
     private string _selectedProvider = "OpenAI";
 
     public bool IsOpenAi => SelectedProvider == "OpenAI";
@@ -32,6 +33,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
     public bool IsGroq => SelectedProvider == "xAI";
     public bool IsOllama => SelectedProvider == "Ollama / LM Studio";
+    public bool IsNvidia => SelectedProvider == "Nvidia";
 
     // ── Chat (AI Assistant) provider ──
     [ObservableProperty]
@@ -42,6 +44,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsChatDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsChatGroq))]
     [NotifyPropertyChangedFor(nameof(IsChatOllama))]
+    [NotifyPropertyChangedFor(nameof(IsChatNvidia))]
     private string _selectedChatProvider = "OpenAI";
 
     public bool IsChatOpenAi => SelectedChatProvider == "OpenAI";
@@ -51,6 +54,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsChatDeepSeek => SelectedChatProvider == "DeepSeek";
     public bool IsChatGroq => SelectedChatProvider == "xAI";
     public bool IsChatOllama => SelectedChatProvider == "Ollama / LM Studio";
+    public bool IsChatNvidia => SelectedChatProvider == "Nvidia";
 
     [ObservableProperty] private string _chatOpenAiModel = "gpt-4o-mini";
     [ObservableProperty] private string _chatGitHubCopilotModel = "gpt-4o";
@@ -59,6 +63,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _chatDeepSeekModel = "deepseek-chat";
     [ObservableProperty] private string _chatGroqModel = "llama-3.3-70b-versatile";
     [ObservableProperty] private string _chatOllamaLmStudioModel = "llama3";
+    [ObservableProperty] private string _chatNvidiaModel = "meta/llama-4-maverick-17b-128e-instruct";
 
     [ObservableProperty]
     private string _openAiApiKey = "";
@@ -79,6 +84,9 @@ public partial class SettingsViewModel : ViewModelBase
     private string _groqApiKey = "";
 
     [ObservableProperty]
+    private string _nvidiaApiKey = "";
+
+    [ObservableProperty]
     private string _openAiModel = "gpt-4o-mini";
 
     [ObservableProperty]
@@ -95,6 +103,9 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _groqModel = "llama-3.3-70b-versatile";
+
+    [ObservableProperty]
+    private string _nvidiaModel = "meta/llama-4-maverick-17b-128e-instruct";
 
     [ObservableProperty]
     private string _ollamaLmStudioEndpoint = "http://localhost:11434/v1/chat/completions";
@@ -171,7 +182,24 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _speechSourceLanguage = "English";
 
-    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Ollama / LM Studio"];
+    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Nvidia", "Ollama / LM Studio"];
+
+    public string[] NvidiaModels { get; } =
+    [
+        "meta/llama-4-maverick-17b-128e-instruct",
+        "meta/llama-4-scout-17b-16e-instruct",
+        "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "meta/llama-3.3-70b-instruct",
+        "meta/llama-3.1-8b-instruct",
+        "mistralai/mistral-large-2-instruct",
+        "google/gemma-3-27b-it",
+        "deepseek-ai/deepseek-r1",
+        "qwen/qwen3-235b-a22b",
+        "z-ai/glm-5.1",
+        "google/gemma-4-31b-it",
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    ];
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
@@ -301,6 +329,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
             AiProvider.OllamaLmStudio => "Ollama / LM Studio",
+            AiProvider.Nvidia         => "Nvidia",
             _ => "OpenAI"
         };
         SelectedChatProvider = s.ChatProvider switch
@@ -311,6 +340,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
             AiProvider.OllamaLmStudio => "Ollama / LM Studio",
+            AiProvider.Nvidia         => "Nvidia",
             _ => "OpenAI"
         };
         OpenAiApiKey = s.OpenAiApiKey;
@@ -319,12 +349,14 @@ public partial class SettingsViewModel : ViewModelBase
         GeminiApiKey = s.GeminiApiKey;
         DeepSeekApiKey = s.DeepSeekApiKey;
         GroqApiKey = s.GroqApiKey;
+        NvidiaApiKey = s.NvidiaApiKey;
         OpenAiModel = s.OpenAiModel;
         GitHubCopilotModel = s.GitHubCopilotModel;
         OpenRouterModel = s.OpenRouterModel;
         GeminiModel = s.GeminiModel;
         DeepSeekModel = s.DeepSeekModel;
         GroqModel = s.GroqModel;
+        NvidiaModel = s.NvidiaModel;
         ChatOpenAiModel = s.ChatOpenAiModel;
         ChatGitHubCopilotModel = s.ChatGitHubCopilotModel;
         ChatOpenRouterModel = s.ChatOpenRouterModel;
@@ -332,6 +364,7 @@ public partial class SettingsViewModel : ViewModelBase
         ChatDeepSeekModel = s.ChatDeepSeekModel;
         ChatGroqModel = s.ChatGroqModel;
         ChatOllamaLmStudioModel = s.ChatOllamaLmStudioModel;
+        ChatNvidiaModel = s.ChatNvidiaModel;
         OllamaLmStudioEndpoint = s.OllamaLmStudioEndpoint;
         OllamaLmStudioModel = s.OllamaLmStudioModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
@@ -512,6 +545,7 @@ public partial class SettingsViewModel : ViewModelBase
             "DeepSeek"           => AiProvider.DeepSeek,
             "xAI"                => AiProvider.Groq,
             "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
+            "Nvidia"             => AiProvider.Nvidia,
             _ => AiProvider.OpenAI
         };
         s.OpenAiApiKey = OpenAiApiKey;
@@ -520,12 +554,14 @@ public partial class SettingsViewModel : ViewModelBase
         s.GeminiApiKey = GeminiApiKey;
         s.DeepSeekApiKey = DeepSeekApiKey;
         s.GroqApiKey = GroqApiKey;
+        s.NvidiaApiKey = NvidiaApiKey;
         s.OpenAiModel = OpenAiModel;
         s.GitHubCopilotModel = GitHubCopilotModel;
         s.OpenRouterModel = OpenRouterModel;
         s.GeminiModel = GeminiModel;
         s.DeepSeekModel = DeepSeekModel;
         s.GroqModel = GroqModel;
+        s.NvidiaModel = NvidiaModel;
         s.GroqModels = [.. GroqModels];
         s.ChatProvider = SelectedChatProvider switch
         {
@@ -535,6 +571,7 @@ public partial class SettingsViewModel : ViewModelBase
             "DeepSeek"           => AiProvider.DeepSeek,
             "xAI"                => AiProvider.Groq,
             "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
+            "Nvidia"             => AiProvider.Nvidia,
             _ => AiProvider.OpenAI
         };
         s.ChatOpenAiModel = ChatOpenAiModel;
@@ -544,6 +581,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.ChatDeepSeekModel = ChatDeepSeekModel;
         s.ChatGroqModel = ChatGroqModel;
         s.ChatOllamaLmStudioModel = ChatOllamaLmStudioModel;
+        s.ChatNvidiaModel = ChatNvidiaModel;
         s.OllamaLmStudioEndpoint = OllamaLmStudioEndpoint;
         s.OllamaLmStudioModel = OllamaLmStudioModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;

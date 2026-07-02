@@ -10,7 +10,8 @@ public enum AiProvider
     Gemini,
     DeepSeek,
     Groq,
-    OllamaLmStudio
+    OllamaLmStudio,
+    Nvidia
 }
 
 public class AppSettings
@@ -31,6 +32,7 @@ public class AppSettings
     public string GroqApiKey { get; set; } = "";
     // Ollama / LM Studio: no API key required (leave empty)
     public string OllamaLmStudioApiKey { get; set; } = "";
+    public string NvidiaApiKey { get; set; } = "";
 
     public string OpenAiModel { get; set; } = "gpt-4o-mini";
     public string GitHubCopilotModel { get; set; } = "gpt-4o";
@@ -41,6 +43,7 @@ public class AppSettings
     public string OllamaLmStudioModel { get; set; } = "llama3";
     // Endpoint URL for Ollama or LM Studio (OpenAI-compatible)
     public string OllamaLmStudioEndpoint { get; set; } = "http://localhost:11434/v1/chat/completions";
+    public string NvidiaModel { get; set; } = "meta/llama-4-maverick-17b-128e-instruct";
 
     // Chat (AI Assistant) — per-provider model selection
     public string ChatOpenAiModel { get; set; } = "gpt-4o-mini";
@@ -50,6 +53,7 @@ public class AppSettings
     public string ChatDeepSeekModel { get; set; } = "deepseek-chat";
     public string ChatGroqModel { get; set; } = "llama-3.3-70b-versatile";
     public string ChatOllamaLmStudioModel { get; set; } = "llama3";
+    public string ChatNvidiaModel { get; set; } = "meta/llama-4-maverick-17b-128e-instruct";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -122,11 +126,12 @@ public class AppSettings
         AiProvider.DeepSeek => DeepSeekApiKey,
         AiProvider.Groq => GroqApiKey,
         AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
+        AiProvider.Nvidia => NvidiaApiKey,
         _ => OpenAiApiKey
     };
 
     /// <summary>True when the active translation provider needs a non-empty API key to work.</summary>
-    public bool ActiveProviderRequiresApiKey => Provider != AiProvider.OllamaLmStudio;
+    public bool ActiveProviderRequiresApiKey => Provider is not AiProvider.OllamaLmStudio;
 
     public string ActiveModel => Provider switch
     {
@@ -136,6 +141,7 @@ public class AppSettings
         AiProvider.DeepSeek => DeepSeekModel,
         AiProvider.Groq => GroqModel,
         AiProvider.OllamaLmStudio => OllamaLmStudioModel,
+        AiProvider.Nvidia => NvidiaModel,
         _ => OpenAiModel
     };
 
@@ -151,6 +157,7 @@ public class AppSettings
         AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
         AiProvider.Groq => "https://api.x.ai/v1/chat/completions",
         AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
+        AiProvider.Nvidia => "https://integrate.api.nvidia.com/v1/chat/completions",
         _ => "https://api.openai.com/v1/chat/completions"
     };
 
@@ -174,6 +181,7 @@ public class AppSettings
                 AiProvider.DeepSeek       => DeepSeekApiKey,
                 AiProvider.Groq           => GroqApiKey,
                 AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
+                AiProvider.Nvidia         => NvidiaApiKey,
                 _                         => OpenAiApiKey
             };
             // Ollama/LM Studio has no key — treat as configured when endpoint is set
@@ -191,6 +199,7 @@ public class AppSettings
         AiProvider.DeepSeek       => DeepSeekApiKey,
         AiProvider.Groq           => GroqApiKey,
         AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
+        AiProvider.Nvidia         => NvidiaApiKey,
         _                         => OpenAiApiKey
     };
 
@@ -205,6 +214,7 @@ public class AppSettings
         AiProvider.DeepSeek       => ChatDeepSeekModel,
         AiProvider.Groq           => ChatGroqModel,
         AiProvider.OllamaLmStudio => ChatOllamaLmStudioModel,
+        AiProvider.Nvidia         => ChatNvidiaModel,
         _                         => ChatOpenAiModel
     };
 
@@ -216,6 +226,7 @@ public class AppSettings
         AiProvider.DeepSeek       => "https://api.deepseek.com/chat/completions",
         AiProvider.Groq           => "https://api.x.ai/v1/chat/completions",
         AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
+        AiProvider.Nvidia         => "https://integrate.api.nvidia.com/v1/chat/completions",
         _                         => "https://api.openai.com/v1/chat/completions"
     };
 }
