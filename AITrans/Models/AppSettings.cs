@@ -30,7 +30,7 @@ public class AppSettings
     public string GeminiApiKey { get; set; } = "";
     public string DeepSeekApiKey { get; set; } = "";
     public string GroqApiKey { get; set; } = "";
-    // Ollama / LM Studio: no API key required (leave empty)
+    // llama.cpp / LM Studio: no API key required unless the local server enforces one
     public string OllamaLmStudioApiKey { get; set; } = "";
     public string NvidiaApiKey { get; set; } = "";
 
@@ -41,9 +41,10 @@ public class AppSettings
     public string DeepSeekModel { get; set; } = "deepseek-chat";
     public string GroqModel { get; set; } = "llama-3.3-70b-versatile";
     public string OllamaLmStudioModel { get; set; } = "llama3";
-    // Endpoint URL for Ollama or LM Studio (OpenAI-compatible)
-    public string OllamaLmStudioEndpoint { get; set; } = "http://localhost:11434/v1/chat/completions";
+    // Endpoint URL for llama.cpp or LM Studio (OpenAI-compatible)
+    public string OllamaLmStudioEndpoint { get; set; } = "http://127.0.0.1:8080/v1/chat/completions";
     public string NvidiaModel { get; set; } = "meta/llama-4-maverick-17b-128e-instruct";
+    public List<string> OllamaModels { get; set; } = ["llama3"];
 
     // Chat (AI Assistant) — per-provider model selection
     public string ChatOpenAiModel { get; set; } = "gpt-4o-mini";
@@ -91,6 +92,9 @@ public class AppSettings
     public string AzureTranslatorEndpoint { get; set; } = "https://api.cognitive.microsofttranslator.com";
     public string AzureTranslatorRegion { get; set; } = "";
     public bool UseAzureTranslatorForMarkdown { get; set; } = false;
+
+    // Google Translate (free, unofficial endpoint — no API key required)
+    public bool UseGoogleTranslateForMarkdown { get; set; } = false;
 
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";
@@ -184,7 +188,7 @@ public class AppSettings
                 AiProvider.Nvidia         => NvidiaApiKey,
                 _                         => OpenAiApiKey
             };
-            // Ollama/LM Studio has no key — treat as configured when endpoint is set
+            // Local providers can work without a key — treat as configured when endpoint is set
             if (ChatProvider == AiProvider.OllamaLmStudio)
                 return !string.IsNullOrWhiteSpace(OllamaLmStudioEndpoint) ? ChatProvider : Provider;
             return string.IsNullOrWhiteSpace(chatKey) ? Provider : ChatProvider;

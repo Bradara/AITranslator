@@ -167,21 +167,28 @@
           </StackPanel>
         </StackPanel>
 
-        <!-- Ollama / LM Studio -->
+        <!-- llama.cpp / LM Studio -->
         <StackPanel Spacing="10" IsVisible="{Binding IsOllama}">
-          <TextBlock Text="Ollama / LM Studio" FontSize="16" FontWeight="SemiBold" />
+          <TextBlock Text="llama.cpp / LM Studio" FontSize="16" FontWeight="SemiBold" />
           <StackPanel Spacing="4">
             <TextBlock Text="Endpoint (пълен URL на chat completions)" />
             <TextBox Text="{Binding OllamaLmStudioEndpoint}"
-                     Watermark="http://localhost:11434/v1/chat/completions" />
-            <TextBlock Text="Ollama: http://localhost:11434/v1/chat/completions · LM Studio: http://localhost:1234/v1/chat/completions"
+                     Watermark="http://127.0.0.1:8080/v1/chat/completions" />
+            <TextBlock Text="llama.cpp: http://127.0.0.1:8080/v1/chat/completions · LM Studio: http://localhost:1234/v1/chat/completions"
                        FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
           </StackPanel>
           <StackPanel Spacing="4">
             <TextBlock Text="Модел" />
-            <TextBox Text="{Binding OllamaLmStudioModel}" Watermark="llama3, mistral, phi3..." Width="240" />
-            <TextBlock Text="Въведи точното ime на модела (ollama list / LM Studio → My Models)."
+            <ComboBox ItemsSource="{Binding OllamaModels}"
+                      Text="{Binding OllamaLmStudioModel}"
+                      IsEditable="True"
+                      Width="240" />
+            <TextBlock Text="Моделите се извличат автоматично от llama.cpp / LM Studio; може и да се въвеждат ръчно."
                        FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="&#x1F504; Fetch models" Command="{Binding FetchOllamaModelsCommand}"
+                    IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
           </StackPanel>
         </StackPanel>
 
@@ -220,7 +227,10 @@
         </StackPanel>
         <StackPanel Spacing="4" IsVisible="{Binding IsChatOllama}">
           <TextBlock Text="Модел" />
-          <TextBox Text="{Binding ChatOllamaLmStudioModel}" Watermark="llama3, mistral, phi3..." Width="240" />
+          <ComboBox ItemsSource="{Binding OllamaModels}"
+                    Text="{Binding ChatOllamaLmStudioModel}"
+                    IsEditable="True"
+                    Width="240" />
           <TextBlock Text="Endpoint-ът е споделен с настройките за превод по-горе."
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
@@ -276,6 +286,17 @@
           <ToggleSwitch IsChecked="{Binding UseAzureTranslatorForMarkdown}"
                         OnContent="Use Azure Translator for Markdown tab" OffContent="Use AI model for Markdown tab" />
           <TextBlock Text="When enabled, Markdown tab uses Azure AI Translator instead of the AI provider."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
+                <Separator Margin="0,4" />
+
+        <!-- Google Translate (free, unofficial endpoint) -->
+        <TextBlock Text="Google Translate (free)" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding UseGoogleTranslateForMarkdown}"
+                        OnContent="Use Google Translate for Markdown tab" OffContent="Use AI model for Markdown tab" />
+          <TextBlock Text="No API key required. Uses the free, unofficial Google Translate web endpoint — undocumented, rate-limited, and may stop working without notice."
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
 

@@ -32,7 +32,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsGemini => SelectedProvider == "Gemini";
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
     public bool IsGroq => SelectedProvider == "xAI";
-    public bool IsOllama => SelectedProvider == "Ollama / LM Studio";
+    public bool IsOllama => SelectedProvider == "llama.cpp / LM Studio";
     public bool IsNvidia => SelectedProvider == "Nvidia";
 
     // ── Chat (AI Assistant) provider ──
@@ -53,7 +53,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsChatGemini => SelectedChatProvider == "Gemini";
     public bool IsChatDeepSeek => SelectedChatProvider == "DeepSeek";
     public bool IsChatGroq => SelectedChatProvider == "xAI";
-    public bool IsChatOllama => SelectedChatProvider == "Ollama / LM Studio";
+    public bool IsChatOllama => SelectedChatProvider == "llama.cpp / LM Studio";
     public bool IsChatNvidia => SelectedChatProvider == "Nvidia";
 
     [ObservableProperty] private string _chatOpenAiModel = "gpt-4o-mini";
@@ -108,7 +108,7 @@ public partial class SettingsViewModel : ViewModelBase
     private string _nvidiaModel = "meta/llama-4-maverick-17b-128e-instruct";
 
     [ObservableProperty]
-    private string _ollamaLmStudioEndpoint = "http://localhost:11434/v1/chat/completions";
+    private string _ollamaLmStudioEndpoint = "http://127.0.0.1:8080/v1/chat/completions";
 
     [ObservableProperty]
     private string _ollamaLmStudioModel = "llama3";
@@ -172,6 +172,10 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _useAzureTranslatorForMarkdown = false;
 
+    // Google Translate (free, unofficial endpoint)
+    [ObservableProperty]
+    private bool _useGoogleTranslateForMarkdown = false;
+
     // Azure Speech
     [ObservableProperty]
     private string _azureSpeechApiKey = "";
@@ -182,7 +186,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _speechSourceLanguage = "English";
 
-    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Nvidia", "Ollama / LM Studio"];
+    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Nvidia", "llama.cpp / LM Studio"];
 
     public string[] NvidiaModels { get; } =
     [
@@ -196,7 +200,7 @@ public partial class SettingsViewModel : ViewModelBase
         "google/gemma-3-27b-it",
         "deepseek-ai/deepseek-r1",
         "qwen/qwen3-235b-a22b",
-        "z-ai/glm-5.1",
+        "z-ai/glm-5.2",
         "google/gemma-4-31b-it",
         "nvidia/nemotron-3-ultra-550b-a55b"
     ];
@@ -244,6 +248,9 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _customGroqModel = "";
+
+    [ObservableProperty]
+    private ObservableCollection<string> _ollamaModels = [];
 
     [RelayCommand]
     private void AddCustomGroqModel()
@@ -328,7 +335,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.Gemini         => "Gemini",
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
-            AiProvider.OllamaLmStudio => "Ollama / LM Studio",
+            AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
             AiProvider.Nvidia         => "Nvidia",
             _ => "OpenAI"
         };
@@ -339,7 +346,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.Gemini         => "Gemini",
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
-            AiProvider.OllamaLmStudio => "Ollama / LM Studio",
+            AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
             AiProvider.Nvidia         => "Nvidia",
             _ => "OpenAI"
         };
@@ -390,6 +397,14 @@ public partial class SettingsViewModel : ViewModelBase
             .ToList();
         GroqModels = new ObservableCollection<string>(mergedGroq);
         _settingsService.Settings.GroqModels = mergedGroq;
+        var mergedOllama = s.OllamaModels
+            .Concat(new[] { s.OllamaLmStudioModel, s.ChatOllamaLmStudioModel, "llama3" })
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m)
+            .ToList();
+        OllamaModels = new ObservableCollection<string>(mergedOllama);
+        _settingsService.Settings.OllamaModels = mergedOllama;
         DeepLApiKey = s.DeepLApiKey;
         DeepLFreeApi = s.DeepLFreeApi;
         UseDeepLForMarkdown = s.UseDeepLForMarkdown;
@@ -398,6 +413,7 @@ public partial class SettingsViewModel : ViewModelBase
         AzureTranslatorEndpoint = s.AzureTranslatorEndpoint;
         AzureTranslatorRegion = s.AzureTranslatorRegion;
         UseAzureTranslatorForMarkdown = s.UseAzureTranslatorForMarkdown;
+        UseGoogleTranslateForMarkdown = s.UseGoogleTranslateForMarkdown;
         AzureSpeechApiKey = s.AzureSpeechApiKey;
         AzureSpeechRegion = s.AzureSpeechRegion;
         SpeechSourceLanguage = s.SpeechSourceLanguage;
@@ -496,6 +512,51 @@ public partial class SettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task FetchOllamaModelsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(OllamaLmStudioEndpoint))
+        {
+            StatusText = "Enter a llama.cpp / LM Studio endpoint first.";
+            return;
+        }
+
+        IsFetchingModels = true;
+        StatusText = "Fetching models from llama.cpp / LM Studio...";
+
+        try
+        {
+            var models = await _translationService.FetchOllamaModelsAsync(OllamaLmStudioEndpoint);
+
+            var merged = OllamaModels
+                .Concat(models)
+                .Concat(new[] { OllamaLmStudioModel, ChatOllamaLmStudioModel })
+                .Where(m => !string.IsNullOrWhiteSpace(m))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m)
+                .ToList();
+
+            OllamaModels = new ObservableCollection<string>(merged);
+            _settingsService.Settings.OllamaModels = merged;
+
+            if (merged.Count > 0 && !merged.Contains(OllamaLmStudioModel, StringComparer.OrdinalIgnoreCase))
+                OllamaLmStudioModel = merged[0];
+
+            if (merged.Count > 0 && !merged.Contains(ChatOllamaLmStudioModel, StringComparer.OrdinalIgnoreCase))
+                ChatOllamaLmStudioModel = merged[0];
+
+            StatusText = $"Found {models.Count} llama.cpp / LM Studio models ({merged.Count} total).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error fetching local models: {ex.Message}";
+        }
+        finally
+        {
+            IsFetchingModels = false;
+        }
+    }
+
+    [RelayCommand]
     private async Task FetchFreeModelsAsync()
     {
         if (string.IsNullOrWhiteSpace(OpenRouterApiKey))
@@ -544,7 +605,7 @@ public partial class SettingsViewModel : ViewModelBase
             "Gemini"             => AiProvider.Gemini,
             "DeepSeek"           => AiProvider.DeepSeek,
             "xAI"                => AiProvider.Groq,
-            "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
+            "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
             "Nvidia"             => AiProvider.Nvidia,
             _ => AiProvider.OpenAI
         };
@@ -563,6 +624,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.GroqModel = GroqModel;
         s.NvidiaModel = NvidiaModel;
         s.GroqModels = [.. GroqModels];
+        s.OllamaModels = [.. OllamaModels];
         s.ChatProvider = SelectedChatProvider switch
         {
             "GitHub Copilot"     => AiProvider.GitHubCopilot,
@@ -570,7 +632,7 @@ public partial class SettingsViewModel : ViewModelBase
             "Gemini"             => AiProvider.Gemini,
             "DeepSeek"           => AiProvider.DeepSeek,
             "xAI"                => AiProvider.Groq,
-            "Ollama / LM Studio" => AiProvider.OllamaLmStudio,
+            "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
             "Nvidia"             => AiProvider.Nvidia,
             _ => AiProvider.OpenAI
         };
@@ -595,6 +657,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.AzureTranslatorEndpoint = AzureTranslatorEndpoint;
         s.AzureTranslatorRegion = AzureTranslatorRegion;
         s.UseAzureTranslatorForMarkdown = UseAzureTranslatorForMarkdown;
+        s.UseGoogleTranslateForMarkdown = UseGoogleTranslateForMarkdown;
         s.ThemeName = SelectedTheme;
         s.AzureSpeechApiKey = AzureSpeechApiKey;
         s.AzureSpeechRegion = AzureSpeechRegion;

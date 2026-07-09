@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -27,6 +28,8 @@ public class TranslationService
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
     });
     private const int MaxRetries = 3;
+    private const int LocalTranslationMinTokens = 256;
+    private const int LocalTranslationMaxTokens = 2048;
     private int _rotationIndex;
 
     /// <summary>
@@ -44,6 +47,82 @@ public class TranslationService
         var model = models[_rotationIndex % models.Count];
         _rotationIndex++;
         return model;
+    }
+
+    private static bool IsLocalTranslationProvider(AppSettings? settings, string endpoint) =>
+        settings?.OllamaLmStudioEndpoint?.Equals(endpoint, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string BuildLocalTranslationPrompt(string text, string targetLanguage) =>
+        $"Translate the text to {targetLanguage}.\n" +
+        "Return the result only inside <translation> and </translation>.\n" +
+        "The content inside <translation> must be in the target language, not in the source language.\n" +
+        "Rules:\n" +
+        "- Preserve markdown, punctuation, spacing, and line breaks.\n" +
+        "- Preserve special characters exactly.\n" +
+        "- Do not add explanations, notes, or quotes.\n" +
+        "- Do not write anything before or after the <translation> block.\n\n" +
+        "Text:\n" +
+        text;
+
+    private static string BuildLocalTranslationRetryPrompt(string text, string targetLanguage) =>
+        $"Translate this text to {targetLanguage}.\n" +
+        "Answer in the target language only.\n" +
+        "Do not explain.\n" +
+        "Do not repeat the source language.\n\n" +
+        text;
+
+    private static int EstimateLocalTranslationMaxTokens(string prompt) =>
+        Math.Clamp(prompt.Length / 2, LocalTranslationMinTokens, LocalTranslationMaxTokens);
+
+    private static double GetLocalTranslationTemperature() => 0.1;
+
+    private static string ExtractLocalTranslationContent(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+            return "";
+
+        var match = Regex.Match(response, @"<translation>\s*(.*?)\s*</translation>",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        if (match.Success)
+            return match.Groups[1].Value.Trim();
+
+        var lines = response
+            .Split('\n')
+            .Select(l => l.TrimEnd('\r'))
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+
+        var filtered = lines
+            .Where(l => !Regex.IsMatch(l, @"^(Разбира се|Ето|Ако имаш|If you|Here is|Sure\b)", RegexOptions.IgnoreCase))
+            .ToList();
+
+        return string.Join("\n", filtered.Count > 0 ? filtered : lines).Trim();
+    }
+
+    private static string NormalizeForComparison(string text) =>
+        Regex.Replace(text, @"\s+", " ").Trim().ToLowerInvariant();
+
+    private static bool LooksUntranslated(string sourceText, string translatedText) =>
+        !string.IsNullOrWhiteSpace(sourceText)
+        && !string.IsNullOrWhiteSpace(translatedText)
+        && NormalizeForComparison(sourceText) == NormalizeForComparison(translatedText);
+
+    private async Task<string> TranslateLocalTextAsync(
+        string text, string targetLanguage, string apiKey, string model, string endpoint,
+        AppSettings? settings, CancellationToken ct)
+    {
+        var localPrompt = BuildLocalTranslationPrompt(text, targetLanguage);
+        var response = await CallApiWithRetryAsync("", localPrompt, apiKey, model, endpoint, settings, ct);
+        var extracted = ExtractLocalTranslationContent(response);
+
+        if (!LooksUntranslated(text, extracted) && !string.IsNullOrWhiteSpace(extracted))
+            return extracted;
+
+        var retryPrompt = BuildLocalTranslationRetryPrompt(text, targetLanguage);
+        var retryResponse = await CallApiWithRetryAsync("", retryPrompt, apiKey, model, endpoint, settings, ct);
+        var retryExtracted = ExtractLocalTranslationContent(retryResponse);
+
+        return string.IsNullOrWhiteSpace(retryExtracted) ? retryResponse.Trim() : retryExtracted;
     }
 
     // DeepL language code mapping
@@ -112,6 +191,76 @@ public class TranslationService
         }
 
         return [.. results];
+    }
+
+    // Google Translate (free, unofficial translate_a/single endpoint) language code mapping
+    private static string ToGoogleTranslateLang(string language) => language.ToLowerInvariant() switch
+    {
+        "bulgarian" => "bg",
+        "russian" => "ru",
+        "english" => "en",
+        "german" => "de",
+        "french" => "fr",
+        "spanish" => "es",
+        _ => language.ToLowerInvariant()
+    };
+
+    /// <summary>
+    /// Translate a batch of texts using the free, unofficial Google Translate endpoint
+    /// (translate.googleapis.com/translate_a/single). No API key required, but this endpoint
+    /// is undocumented, rate-limited, and may change or block requests without notice.
+    /// Each text is sent individually so we get paragraph-level progress callbacks.
+    /// </summary>
+    public async Task<List<string>> TranslateGoogleFreeBatchAsync(
+        List<string> texts, string targetLanguage,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
+    {
+        var langCode = ToGoogleTranslateLang(targetLanguage);
+        var results = new string[texts.Count];
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (i > 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
+
+            var url = "https://translate.googleapis.com/translate_a/single" +
+                      $"?client=gtx&sl=auto&tl={Uri.EscapeDataString(langCode)}&dt=t&q={Uri.EscapeDataString(texts[i])}";
+
+            using var resp = await HttpClient.GetAsync(url, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException($"Google Translate error {resp.StatusCode}: {json}");
+
+            var translated = ExtractGoogleTranslateText(json);
+
+            results[i] = translated;
+            onEntryTranslated?.Invoke(i, translated);
+            progress?.Report((i + 1) * 100 / texts.Count);
+        }
+
+        return [.. results];
+    }
+
+    private static string ExtractGoogleTranslateText(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0
+            || root[0].ValueKind != JsonValueKind.Array)
+            return "";
+
+        var sb = new StringBuilder();
+        foreach (var segment in root[0].EnumerateArray())
+        {
+            if (segment.ValueKind == JsonValueKind.Array && segment.GetArrayLength() > 0)
+                sb.Append(segment[0].GetString());
+        }
+
+        return sb.ToString();
     }
 
     // Azure AI Translator language code mapping
@@ -327,11 +476,153 @@ public class TranslationService
         return models.OrderBy(m => m).ToList();
     }
 
+    /// <summary>
+    /// Fetches available local models from a llama.cpp / LM Studio / Ollama-compatible server.
+    /// Tries OpenAI-compatible model endpoints first, then falls back to llama.cpp /props.
+    /// </summary>
+    public async Task<List<string>> FetchOllamaModelsAsync(string endpoint, CancellationToken ct = default)
+    {
+        var root = NormalizeModelEndpointRoot(endpoint);
+        if (string.IsNullOrWhiteSpace(root))
+            throw new ArgumentException("Endpoint cannot be empty.", nameof(endpoint));
+
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fetchedAny = false;
+
+        if (await TryFetchOpenAiModelsAsync(new Uri(new Uri(root), "v1/models"), models, ct))
+            fetchedAny = true;
+
+        if (await TryFetchOpenAiModelsAsync(new Uri(new Uri(root), "models"), models, ct))
+            fetchedAny = true;
+
+        if (await TryFetchLlamaCppPropsAsync(new Uri(new Uri(root), "props"), models, ct))
+            fetchedAny = true;
+
+        if (await TryFetchOllamaTagsAsync(new Uri(new Uri(root), "api/tags"), models, ct))
+            fetchedAny = true;
+
+        if (!fetchedAny)
+            throw new HttpRequestException("Unable to fetch models from llama.cpp, LM Studio, or Ollama.");
+
+        return models.OrderBy(m => m).ToList();
+    }
+
+    private static string NormalizeModelEndpointRoot(string endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return "";
+
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            return endpoint.TrimEnd('/') + "/";
+
+        var path = uri.AbsolutePath;
+        foreach (var suffix in new[] { "/v1/chat/completions", "/chat/completions", "/completions" })
+        {
+            if (path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                path = path[..^suffix.Length];
+                break;
+            }
+        }
+
+        if (!path.EndsWith('/'))
+            path += "/";
+
+        return new UriBuilder(uri) { Path = path }.Uri.ToString();
+    }
+
+    private static async Task<bool> TryFetchOllamaTagsAsync(Uri requestUri, HashSet<string> target, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        using var response = await HttpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            return false;
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+
+        if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
+            return true;
+
+        foreach (var item in models.EnumerateArray())
+        {
+            var name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+            var model = item.TryGetProperty("model", out var modelEl) ? modelEl.GetString() : null;
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+
+            var modelName = name ?? model ?? id ?? "";
+            if (!string.IsNullOrWhiteSpace(modelName))
+                target.Add(modelName);
+        }
+
+        return true;
+    }
+
+    private static async Task<bool> TryFetchOpenAiModelsAsync(Uri requestUri, HashSet<string> target, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        using var response = await HttpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            return false;
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        ExtractModelsFromArray(json, target);
+        return true;
+    }
+
+    private static async Task<bool> TryFetchLlamaCppPropsAsync(Uri requestUri, HashSet<string> target, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        using var response = await HttpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            return false;
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        AddIfPresent(root, "model", target);
+        AddIfPresent(root, "model_alias", target);
+
+        if (root.TryGetProperty("default_generation_settings", out var settings)
+            && settings.ValueKind == JsonValueKind.Object)
+        {
+            AddIfPresent(settings, "model", target);
+            AddIfPresent(settings, "model_alias", target);
+        }
+
+        if (root.TryGetProperty("model_path", out var modelPathEl))
+        {
+            var modelPath = modelPathEl.GetString();
+            if (!string.IsNullOrWhiteSpace(modelPath))
+            {
+                var fileName = Path.GetFileNameWithoutExtension(modelPath);
+                if (!string.IsNullOrWhiteSpace(fileName))
+                    target.Add(fileName);
+            }
+        }
+
+        return true;
+    }
+
+    private static void AddIfPresent(JsonElement element, string propertyName, HashSet<string> target)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+            return;
+
+        var value = property.GetString();
+        if (!string.IsNullOrWhiteSpace(value))
+            target.Add(value);
+    }
+
     public async Task<string> TranslateTextAsync(
         string text, string targetLanguage, string apiKey, string model, string endpoint,
         AppSettings? settings = null, CancellationToken ct = default)
     {
         var actualModel = settings != null ? GetNextModel(settings) : model;
+
+        if (IsLocalTranslationProvider(settings, endpoint))
+            return await TranslateLocalTextAsync(text, targetLanguage, apiKey, actualModel, endpoint, settings, ct);
 
         var systemPrompt = $"You are a professional translator. Translate the following text to {targetLanguage}. " +
                            "Preserve all formatting, markdown syntax, line breaks, and special characters exactly as they are. " +
@@ -374,6 +665,28 @@ public class TranslationService
         IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
         AppSettings? settings = null, CancellationToken ct = default)
     {
+        if (IsLocalTranslationProvider(settings, endpoint))
+        {
+            var individualResults = new string[texts.Count];
+
+            for (int i = 0; i < texts.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (i > 0 && delayBetweenRequestsMs > 0)
+                    await Task.Delay(delayBetweenRequestsMs, ct);
+
+                var translated = await TranslateLocalTextAsync(
+                    texts[i], targetLanguage, apiKey, model, endpoint, settings, ct);
+
+                individualResults[i] = translated;
+                onEntryTranslated?.Invoke(i, translated);
+                progress?.Report((i + 1) * 100 / texts.Count);
+            }
+
+            return [.. individualResults];
+        }
+
         var results = new string[texts.Count];
         var batches = texts.Select((t, i) => new { Text = t, Index = i })
             .Chunk(batchSize)
@@ -471,35 +784,33 @@ public class TranslationService
         if (settings?.Provider == AiProvider.Gemini)
             return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
 
-        // For Ollama / LM Studio disable the reasoning/thinking mode so responses are faster
-        var isOllama = settings?.Provider == AiProvider.OllamaLmStudio;
-
-        object requestBody = isOllama
-            ? new
+        var messages = IsLocalTranslationProvider(settings, endpoint) && string.IsNullOrWhiteSpace(systemPrompt)
+            ? new object[]
             {
-                model,
-                messages = new object[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userMessage }
-                },
-                temperature = settings?.Temperature ?? 1.0,
-                think = false
+                new { role = "user", content = userMessage }
             }
-            : new
+            : new object[]
             {
-                model,
-                messages = new object[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userMessage }
-                },
-                temperature = settings?.Temperature ?? 1.0
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userMessage }
             };
+
+        var isLocalTranslation = IsLocalTranslationProvider(settings, endpoint) && string.IsNullOrWhiteSpace(systemPrompt);
+        var maxTokens = isLocalTranslation ? EstimateLocalTranslationMaxTokens(userMessage) : (int?)null;
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["messages"] = messages,
+            ["temperature"] = isLocalTranslation ? GetLocalTranslationTemperature() : settings?.Temperature ?? 1.0
+        };
+
+        if (isLocalTranslation)
+            requestBody["max_tokens"] = maxTokens;
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        // Ollama and LM Studio work without an API key; skip the Authorization header when key is empty
+        // Local OpenAI-compatible servers can work without an API key; skip the header when key is empty
         if (!string.IsNullOrWhiteSpace(apiKey))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");

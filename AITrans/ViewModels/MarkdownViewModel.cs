@@ -1648,6 +1648,19 @@ public partial class MarkdownViewModel : ViewModelBase
                         Paragraphs[realIdx].TranslatedText = translations[i];
                 }
             }
+            else if (settings.UseGoogleTranslateForMarkdown)
+            {
+                var translations = await _translationService.TranslateGoogleFreeBatchAsync(
+                    texts, SelectedLanguage,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = translations[i];
+                }
+            }
             else
             {
                 var apiKey = settings.ActiveApiKey;
