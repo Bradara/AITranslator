@@ -292,8 +292,10 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private void LoadFileCore(string path)
     {
         _loadingFile = true;
-        MarkdownText = File.ReadAllText(path);  // triggers OnMarkdownTextChanged → BuildPlainText()
+        // Set the path before the content so GetPreviewKey() resolves to the new file
+        // when MarkdownText's setter synchronously triggers RebuildPages() below.
         LoadedFilePath = path;
+        MarkdownText = File.ReadAllText(path);  // triggers OnMarkdownTextChanged → BuildPlainText()
         _loadingFile = false;
         HasUnsavedChanges = false;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";

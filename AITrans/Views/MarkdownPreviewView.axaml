@@ -257,7 +257,7 @@
                                          Foreground="White" />
                   </Border>
 
-                  <!-- Assistant message — left-aligned -->
+                  <!-- Assistant message — left-aligned, rendered as formatted Markdown -->
                   <Border IsVisible="{Binding IsAssistant}"
                           HorizontalAlignment="Left"
                           MaxWidth="320"
@@ -266,9 +266,9 @@
                     <Border.Background>
                       <SolidColorBrush Color="#33808080" />
                     </Border.Background>
-                    <SelectableTextBlock Text="{Binding Content}"
-                                         TextWrapping="Wrap"
-                                         FontSize="12" />
+                    <md:MarkdownScrollViewer x:CompileBindings="False"
+                                             Markdown="{Binding Content}"
+                                             SelectionEnabled="True" />
                   </Border>
 
                 </Panel>
