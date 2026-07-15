@@ -127,6 +127,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [ObservableProperty]
     private string _chatLanguage = "Bulgarian";
 
+    [ObservableProperty]
+    private string _translationProviderMode = "С ИИ";
+
     /// <summary>Incremented each time a new message is appended — view scrolls to bottom.</summary>
     [ObservableProperty]
     private int _chatScrollRequest;
@@ -134,6 +137,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     public ObservableCollection<ChatMessage> ChatMessages { get; } = [];
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
+
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
 
     /// <summary>Shows which chat provider/model is active (read from settings at access time).</summary>
     public string ChatProviderModelDisplay
@@ -185,6 +190,25 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var defaultLang = settingsService.Settings.DefaultLanguage;
         if (!string.IsNullOrWhiteSpace(defaultLang) && AvailableLanguages.Contains(defaultLang))
             ChatLanguage = defaultLang;
+
+        TranslationProviderMode = ResolveTranslationProviderMode(settingsService.Settings);
+    }
+
+    private static string ResolveTranslationProviderMode(AppSettings s) => s switch
+    {
+        { UseAzureTranslatorForMarkdown: true } => "Azure",
+        { UseDeepLForMarkdown: true } => "DeepL",
+        { UseGoogleTranslateForMarkdown: true } => "Google",
+        _ => "С ИИ"
+    };
+
+    partial void OnTranslationProviderModeChanged(string value)
+    {
+        var s = _settingsService.Settings;
+        s.UseAzureTranslatorForMarkdown = value == "Azure";
+        s.UseDeepLForMarkdown = value == "DeepL";
+        s.UseGoogleTranslateForMarkdown = value == "Google";
+        _settingsService.Save();
     }
 
     // ──────────────────────────────────────────────────────
@@ -574,6 +598,90 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     // ──────────────────────────────────────────────────────
     //  AI Chat helpers
     // ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Translates the given selected text using the currently chosen provider (AI chat, DeepL,
+    /// Azure Translator, or Google Translate). Non-AI providers post the result into the chat
+    /// panel as a user/assistant exchange, matching the AI translate flow's UX.
+    /// </summary>
+    internal async Task TranslateSelectionAsync(string text)
+    {
+        if (TranslationProviderMode == "С ИИ")
+        {
+            var extra = ChatInput.Trim();
+            var prompt = string.IsNullOrEmpty(extra)
+                ? $"Преведи на {ChatLanguage}:\n\n{text}"
+                : $"Преведи на {ChatLanguage}:\n\n{text}\n\nДопълнителни инструкции: {extra}";
+            await ExecuteChatActionAsync(prompt);
+            return;
+        }
+
+        var settings = _settingsService.Settings;
+        var provider = TranslationProviderMode;
+
+        if (provider == "DeepL" && string.IsNullOrWhiteSpace(settings.DeepLApiKey))
+        {
+            StatusText = "DeepL API ключ не е зададен. Отиди в Settings.";
+            return;
+        }
+        if (provider == "Azure" && string.IsNullOrWhiteSpace(settings.AzureTranslatorApiKey))
+        {
+            StatusText = "Azure Translator API ключ не е зададен. Отиди в Settings.";
+            return;
+        }
+
+        ChatMessages.Add(new ChatMessage
+        {
+            Role = ChatRole.User,
+            Content = $"Преведи ({provider}) на {ChatLanguage}:\n\n{text}"
+        });
+        ChatScrollRequest++;
+
+        IsChatBusy = true;
+        SendChatCommand.NotifyCanExecuteChanged();
+
+        _chatCts?.Dispose();
+        _chatCts = new CancellationTokenSource();
+
+        try
+        {
+            var texts = new List<string> { text };
+            var translations = provider switch
+            {
+                "DeepL" => await _translationService.TranslateDeepLBatchAsync(
+                    texts, ChatLanguage, settings.DeepLApiKey, settings.DeepLFreeApi, ct: _chatCts.Token),
+                "Azure" => await _translationService.TranslateAzureTranslatorBatchAsync(
+                    texts, ChatLanguage, settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint,
+                    settings.AzureTranslatorRegion, ct: _chatCts.Token),
+                "Google" => await _translationService.TranslateGoogleFreeBatchAsync(
+                    texts, ChatLanguage, ct: _chatCts.Token),
+                _ => texts
+            };
+
+            var reply = translations.Count > 0 ? translations[0] : "";
+            ChatMessages.Add(new ChatMessage { Role = ChatRole.Assistant, Content = reply });
+            ChatScrollRequest++;
+            SaveChatHistory();
+        }
+        catch (OperationCanceledException)
+        {
+            // Translation cancelled — do nothing
+        }
+        catch (Exception ex)
+        {
+            ChatMessages.Add(new ChatMessage
+            {
+                Role = ChatRole.Assistant,
+                Content = $"⚠️ Грешка: {ex.Message}"
+            });
+            ChatScrollRequest++;
+        }
+        finally
+        {
+            IsChatBusy = false;
+            SendChatCommand.NotifyCanExecuteChanged();
+        }
+    }
 
     internal async Task ExecuteChatActionAsync(string userMessage)
     {

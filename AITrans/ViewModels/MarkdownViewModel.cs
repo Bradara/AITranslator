@@ -64,6 +64,9 @@ public partial class MarkdownViewModel : ViewModelBase
     private string _selectedLanguage = "Bulgarian";
 
     [ObservableProperty]
+    private string _translationProviderMode = "С ИИ";
+
+    [ObservableProperty]
     private string _statusText = "Ready";
 
     [ObservableProperty]
@@ -85,6 +88,8 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
+
     public bool HasParagraphs => Paragraphs.Count > 0;
 
     internal CacheService CacheService => _cacheService;
@@ -97,7 +102,25 @@ public partial class MarkdownViewModel : ViewModelBase
         _cacheService = cacheService;
         _ebookImportService = ebookImportService;
         SelectedLanguage = settingsService.Settings.DefaultLanguage;
+        TranslationProviderMode = ResolveTranslationProviderMode(settingsService.Settings);
         UpdateCacheInfo();
+    }
+
+    private static string ResolveTranslationProviderMode(AppSettings s) => s switch
+    {
+        { UseAzureTranslatorForMarkdown: true } => "Azure",
+        { UseDeepLForMarkdown: true } => "DeepL",
+        { UseGoogleTranslateForMarkdown: true } => "Google",
+        _ => "С ИИ"
+    };
+
+    partial void OnTranslationProviderModeChanged(string value)
+    {
+        var s = _settingsService.Settings;
+        s.UseAzureTranslatorForMarkdown = value == "Azure";
+        s.UseDeepLForMarkdown = value == "DeepL";
+        s.UseGoogleTranslateForMarkdown = value == "Google";
+        _settingsService.Save();
     }
 
     public string EbookWorkingFolder => _settingsService.Settings.EbookWorkingFolder;

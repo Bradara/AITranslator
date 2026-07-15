@@ -410,11 +410,7 @@ public partial class MarkdownPreviewView : UserControl
             vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Преведи'.";
             return;
         }
-        var extra = vm.ChatInput.Trim();
-        var prompt = string.IsNullOrEmpty(extra)
-            ? $"Преведи на {vm.ChatLanguage}:\n\n{text}"
-            : $"Преведи на {vm.ChatLanguage}:\n\n{text}\n\nДопълнителни инструкции: {extra}";
-        await vm.ExecuteChatActionAsync(prompt);
+        await vm.TranslateSelectionAsync(text);
     }
 
     private async void OnExplainClick(object? sender, RoutedEventArgs e)

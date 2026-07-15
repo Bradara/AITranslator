@@ -190,6 +190,10 @@
             <ComboBox ItemsSource="{Binding AvailableLanguages}"
                       SelectedItem="{Binding ChatLanguage}"
                       FontSize="11" Margin="0,0,4,4" />
+            <ComboBox ItemsSource="{Binding AvailableTranslationProviders}"
+                      SelectedItem="{Binding TranslationProviderMode}"
+                      FontSize="11" Margin="0,0,4,4"
+                      ToolTip.Tip="Доставчик за превод" />
             <Button Content="🌐 Преведи"
                     Click="OnTranslateClick"
                     IsEnabled="{Binding !IsChatBusy}"

@@ -13,6 +13,8 @@
       <Button x:Name="OpenFileBtn" Content="📂 Open MD" Click="OnOpenFileClick" />
       <Button x:Name="ImportEbookBtn" Content="📥 Import EPUB/FB2" Click="OnImportEbookClick" />
       <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguage}" Width="150" />
+      <ComboBox ItemsSource="{Binding AvailableTranslationProviders}" SelectedItem="{Binding TranslationProviderMode}"
+                Width="110" ToolTip.Tip="Доставчик за превод" />
       <Button Content="▶ Translate All" Command="{Binding TranslateCommand}" />
       <Button Content="▶ Selected" Command="{Binding TranslateSelectedCommand}" ToolTip.Tip="Translate only selected rows" />
       <Button Content="▶ From Here" Command="{Binding TranslateFromSelectedCommand}" ToolTip.Tip="Translate from selected row to end" />
