@@ -82,6 +82,14 @@ public partial class MarkdownViewModel : ViewModelBase
     [ObservableProperty]
     private int _scrollToRow = -1;
 
+    /// <summary>1-based row number currently active (last clicked/scrolled-to), shown next to the "go to row" navigator.</summary>
+    [ObservableProperty]
+    private int _currentRowNumber = 1;
+
+    /// <summary>Bound to the "go to row" navigator input.</summary>
+    [ObservableProperty]
+    private int _goToRowNumber = 1;
+
     private List<int> _selectedIndices = [];
     private int _lastTranslatedIndex = -1;
     private int _lastSelectedIndex = -1;
@@ -136,6 +144,19 @@ public partial class MarkdownViewModel : ViewModelBase
         _selectedIndices = indices;
         if (_selectedIndices.Count > 0)
             UpdateLastSelectedIndex(_selectedIndices.Min());
+    }
+
+    /// <summary>Called by the view whenever the topmost visible row changes due to scrolling
+    /// (mouse wheel, scrollbar drag, keyboard) so the "active row" is tracked even without a click.</summary>
+    public void NotifyActiveRow(int idx) => UpdateLastSelectedIndex(idx);
+
+    [RelayCommand]
+    private void GoToRow()
+    {
+        if (Paragraphs.Count == 0) return;
+        var idx = Math.Clamp(GoToRowNumber - 1, 0, Paragraphs.Count - 1);
+        UpdateLastSelectedIndex(idx);
+        ScrollToRow = idx;
     }
 
     [RelayCommand]
@@ -242,6 +263,7 @@ public partial class MarkdownViewModel : ViewModelBase
         if (Paragraphs.Count == 0) { StatusText = "Nothing to cache."; return; }
         var sessionKey = LoadedFilePath ?? "unsaved";
         _cacheService.SaveMarkdownSession(sessionKey, InputText, SelectedLanguage, Paragraphs);
+        PersistSessionState();
         UpdateCacheInfo();
         StatusText = $"Session cached ({Paragraphs.Count} paragraphs).";
     }
@@ -279,6 +301,18 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         if (Paragraphs.Count == 0) return;
         ScrollToRow = GetRestoreRowIndex();
+    }
+
+    /// <summary>
+    /// Pre-fills the "go to row" navigator with the last active row for this session, without
+    /// auto-scrolling. Used when the tab regains visibility: automatically jumping the DataGrid's
+    /// scroll position on show proved unreliable (virtualized rows not yet realized at that point),
+    /// so instead the user sees the suggested row and explicitly confirms via the "Иди" button.
+    /// </summary>
+    public void SuggestRestoreRow()
+    {
+        if (Paragraphs.Count == 0) return;
+        GoToRowNumber = GetRestoreRowIndex() + 1;
     }
 
     private void UpdateCacheInfo()
@@ -1616,7 +1650,16 @@ public partial class MarkdownViewModel : ViewModelBase
         try
         {
             var indexMap = indices.Where(i => i >= 0 && i < Paragraphs.Count).ToList();
-            var texts = indexMap.Select(i => Paragraphs[i].OriginalText).ToList();
+
+            // Shield markdown link/image URLs (e.g. ../images/00001.jpeg) from translation —
+            // otherwise providers translate path segments along with the prose and break the link.
+            var linkMaps = new List<string>[indexMap.Count];
+            var texts = indexMap.Select((i, batchIdx) =>
+            {
+                var (protectedText, urls) = MarkdownLinkProtector.Protect(Paragraphs[i].OriginalText);
+                linkMaps[batchIdx] = urls;
+                return protectedText;
+            }).ToList();
 
             var progressReporter = new Progress<int>(p => Progress = p);
 
@@ -1625,7 +1668,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 if (batchIdx >= 0 && batchIdx < indexMap.Count)
                 {
                     var realIdx = indexMap[batchIdx];
-                    Paragraphs[realIdx].TranslatedText = text;
+                    Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(text, linkMaps[batchIdx]);
                     SetLastTranslatedIndex(realIdx);
                     translated++;
                     StatusText = $"Translated {translated}/{total}...";
@@ -1649,7 +1692,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[i];
                     if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
-                        Paragraphs[realIdx].TranslatedText = translations[i];
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
                 }
             }
             else if (settings.UseDeepLForMarkdown)
@@ -1668,7 +1711,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[i];
                     if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
-                        Paragraphs[realIdx].TranslatedText = translations[i];
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
                 }
             }
             else if (settings.UseGoogleTranslateForMarkdown)
@@ -1681,7 +1724,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[i];
                     if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
-                        Paragraphs[realIdx].TranslatedText = translations[i];
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
                 }
             }
             else
@@ -1705,7 +1748,7 @@ public partial class MarkdownViewModel : ViewModelBase
                 {
                     var realIdx = indexMap[i];
                     if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
-                        Paragraphs[realIdx].TranslatedText = translations[i];
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
                 }
             }
 
@@ -1764,6 +1807,7 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         if (idx < 0) return;
         _lastSelectedIndex = idx;
+        CurrentRowNumber = idx + 1;
         var key = GetSessionKey();
         if (!string.IsNullOrWhiteSpace(key))
             _settingsService.Settings.MarkdownLastSelectedIndexByFile[key] = _lastSelectedIndex;
@@ -1777,14 +1821,17 @@ public partial class MarkdownViewModel : ViewModelBase
             && selectedIdx >= 0)
         {
             _lastSelectedIndex = selectedIdx;
-            return Math.Clamp(selectedIdx, 0, Paragraphs.Count - 1);
+            var clamped = Math.Clamp(selectedIdx, 0, Paragraphs.Count - 1);
+            CurrentRowNumber = clamped + 1;
+            return clamped;
         }
         if (!_settingsService.Settings.MarkdownLastTranslatedIndexByFile.TryGetValue(key, out var lastIdx))
             lastIdx = GetLastTranslatedIndexFromParagraphs();
         _lastTranslatedIndex = lastIdx;
         if (lastIdx >= 0 && !string.IsNullOrWhiteSpace(key))
             _settingsService.Settings.MarkdownLastTranslatedIndexByFile[key] = lastIdx;
-        if (lastIdx < 0) return 0;
-        return Math.Min(lastIdx + 1, Paragraphs.Count - 1);
+        var result = lastIdx < 0 ? 0 : Math.Min(lastIdx + 1, Paragraphs.Count - 1);
+        CurrentRowNumber = result + 1;
+        return result;
     }
 }

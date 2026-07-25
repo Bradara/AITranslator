@@ -17,9 +17,9 @@ namespace AITrans.Views;
 
 public partial class MarkdownView : UserControl
 {
-    private double _savedScrollY;
     private int _pendingScrollRow = -1;
     private MarkdownViewModel? _subscribedVm;
+    private ScrollViewer? _subscribedScrollViewer;
 
     public MarkdownView()
     {
@@ -40,34 +40,40 @@ public partial class MarkdownView : UserControl
             vm.LoadCacheFromKey(window.SelectedKey);
     }
 
-    // ── Scroll position: save on tab deactivation, restore on activation ────
+    // ── Active row: suggested (not auto-scrolled) on tab activation ─────────
+    // Auto-scrolling the virtualized DataGrid right when the tab becomes visible proved
+    // unreliable (rows not yet realized at that point). Instead we just pre-fill the
+    // "go to row" navigator with the last active row; the user confirms via "Иди".
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
         if (change.Property != IsVisibleProperty) return;
+        if (!change.GetNewValue<bool>()) return;
 
-        if (!change.GetNewValue<bool>())
-            SaveScrollOffset();
-        else
-        {
-            if (DataContext is MarkdownViewModel vm)
-                vm.RequestRestoreScroll();
-            Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
-        }
+        RequestRowSuggestion();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        RequestRowSuggestion();
+    }
+
+    private void RequestRowSuggestion()
+    {
         if (DataContext is MarkdownViewModel vm)
-            vm.RequestRestoreScroll();
-        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+            vm.SuggestRestoreRow();
+        Dispatcher.UIThread.Post(SubscribeScrollChanged, DispatcherPriority.Loaded);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        SaveScrollOffset();
+        if (_subscribedScrollViewer != null)
+        {
+            _subscribedScrollViewer.ScrollChanged -= OnGridScrollChanged;
+            _subscribedScrollViewer = null;
+        }
         if (DataContext is MarkdownViewModel vm)
             vm.PersistSessionState();
         base.OnDetachedFromVisualTree(e);
@@ -97,31 +103,70 @@ public partial class MarkdownView : UserControl
         _pendingScrollRow = vm.ScrollToRow;
         vm.ScrollToRow = -1; // consume the signal
 
-        if (IsVisible)
-            Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
     }
 
     private ScrollViewer? GridScrollViewer()
         => ParagraphGrid.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
 
-    private void SaveScrollOffset()
-    {
-        var sv = GridScrollViewer();
-        if (sv != null) _savedScrollY = sv.Offset.Y;
-    }
-
     private void RestoreOrScrollToPending()
     {
-        if (_pendingScrollRow >= 0)
+        SubscribeScrollChanged();
+        if (_pendingScrollRow < 0) return;
+        ScrollGridToRow(_pendingScrollRow);
+        _pendingScrollRow = -1;
+    }
+
+    // ── Active-row tracking while scrolling (mouse wheel, scrollbar, keyboard) ─
+
+    private void SubscribeScrollChanged()
+    {
+        var sv = GridScrollViewer();
+        if (sv == null || sv == _subscribedScrollViewer) return;
+
+        if (_subscribedScrollViewer != null)
+            _subscribedScrollViewer.ScrollChanged -= OnGridScrollChanged;
+
+        _subscribedScrollViewer = sv;
+        sv.ScrollChanged += OnGridScrollChanged;
+    }
+
+    private void OnGridScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        // Defer until after layout — rows aren't re-arranged for the new offset yet at the
+        // moment ScrollChanged fires, so reading Bounds/TranslatePoint here would be stale
+        // and pick a row a few positions off from what's actually on screen.
+        Dispatcher.UIThread.Post(UpdateActiveRowFromScroll, DispatcherPriority.Loaded);
+    }
+
+    private void UpdateActiveRowFromScroll()
+    {
+        if (DataContext is not MarkdownViewModel vm) return;
+        if (GetTopmostVisibleRow()?.DataContext is MarkdownEntry entry)
+            vm.NotifyActiveRow(entry.Index - 1);
+    }
+
+    /// <summary>Finds the row currently at (or nearest below) the top edge of the grid's viewport.</summary>
+    private DataGridRow? GetTopmostVisibleRow()
+    {
+        DataGridRow? best = null;
+        var bestY = double.MaxValue;
+
+        foreach (var row in ParagraphGrid.GetVisualDescendants().OfType<DataGridRow>())
         {
-            ScrollGridToRow(_pendingScrollRow);
-            _pendingScrollRow = -1;
+            var pt = row.TranslatePoint(new Point(0, 0), ParagraphGrid);
+            if (pt == null) continue;
+
+            var y = pt.Value.Y;
+            if (y < -row.Bounds.Height) continue; // scrolled fully above the viewport
+            if (y < bestY)
+            {
+                bestY = y;
+                best = row;
+            }
         }
-        else
-        {
-            var sv = GridScrollViewer();
-            if (sv != null) sv.Offset = new Vector(0, _savedScrollY);
-        }
+
+        return best;
     }
 
     private void ScrollGridToRow(int rowIndex)
