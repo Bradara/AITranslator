@@ -300,6 +300,17 @@
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
 
+                <Separator Margin="0,4" />
+
+        <!-- DeepL Free (unofficial jsonrpc endpoint) -->
+        <TextBlock Text="DeepL Free (unofficial)" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding UseDeepLFreeForMarkdown}"
+                        OnContent="Use DeepL Free for Markdown tab" OffContent="Use AI model for Markdown tab" />
+          <TextBlock Text="No API key/account required. Reverse-engineered from deepl.com's own web client — DeepL actively fights unofficial use, so this is more fragile than the Google option above and can break without notice. Prefer the official DeepL section for reliability."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
       </StackPanel>
     </ScrollViewer>
 

@@ -96,6 +96,10 @@ public class AppSettings
     // Google Translate (free, unofficial endpoint — no API key required)
     public bool UseGoogleTranslateForMarkdown { get; set; } = false;
 
+    // DeepL Free (unofficial jsonrpc endpoint — no API key/account required; distinct
+    // from DeepLFreeApi above, which toggles the free tier of the *official* DeepL API)
+    public bool UseDeepLFreeForMarkdown { get; set; } = false;
+
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";
     public string AzureSpeechRegion { get; set; } = "";

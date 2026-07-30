@@ -138,7 +138,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepL Free", "Azure", "Google"];
 
     /// <summary>Shows which chat provider/model is active (read from settings at access time).</summary>
     public string ChatProviderModelDisplay
@@ -198,6 +198,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         { UseAzureTranslatorForMarkdown: true } => "Azure",
         { UseDeepLForMarkdown: true } => "DeepL",
+        { UseDeepLFreeForMarkdown: true } => "DeepL Free",
         { UseGoogleTranslateForMarkdown: true } => "Google",
         _ => "С ИИ"
     };
@@ -207,6 +208,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForMarkdown = value == "Azure";
         s.UseDeepLForMarkdown = value == "DeepL";
+        s.UseDeepLFreeForMarkdown = value == "DeepL Free";
         s.UseGoogleTranslateForMarkdown = value == "Google";
         _settingsService.Save();
     }
@@ -656,6 +658,8 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
                     texts, ChatLanguage, settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint,
                     settings.AzureTranslatorRegion, ct: _chatCts.Token),
                 "Google" => await _translationService.TranslateGoogleFreeBatchAsync(
+                    texts, ChatLanguage, ct: _chatCts.Token),
+                "DeepL Free" => await _translationService.TranslateDeepLFreeBatchAsync(
                     texts, ChatLanguage, ct: _chatCts.Token),
                 _ => texts
             };

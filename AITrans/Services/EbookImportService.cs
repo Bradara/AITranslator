@@ -216,33 +216,31 @@ public sealed class EbookImportService
         return Path.GetFullPath(path);
     }
 
+    /// <summary>
+    /// Each book gets its own folder containing the .md file and an "images" subfolder for its
+    /// assets, instead of a title-derived "&lt;title&gt;-assets" folder next to the .md. Book
+    /// titles often contain spaces or punctuation, which used to end up in the image paths
+    /// markdown links reference and broke link parsing — "images" is always a plain, stable name.
+    /// </summary>
     private static (string MarkdownPath, string AssetsDirectory, string AssetsFolderName) CreateOutputPaths(string outputRoot, string title)
     {
         var baseName = SanitizeFileName(string.IsNullOrWhiteSpace(title) ? "ebook" : title);
-        var mdPath = BuildUniquePath(outputRoot, baseName, ".md");
-        var assetsFolderName = BuildUniqueFolderName(outputRoot, baseName + "-assets");
-        var assetsDir = Path.Combine(outputRoot, assetsFolderName);
+
+        var bookFolderName = BuildUniqueFolderName(outputRoot, baseName);
+        var bookDir = Path.Combine(outputRoot, bookFolderName);
+        Directory.CreateDirectory(bookDir);
+
+        var mdPath = Path.Combine(bookDir, baseName + ".md");
+        const string assetsFolderName = "images";
+        var assetsDir = Path.Combine(bookDir, assetsFolderName);
         Directory.CreateDirectory(assetsDir);
 
         return (mdPath, assetsDir, assetsFolderName);
     }
 
-    private static string BuildUniquePath(string dir, string baseName, string extension)
-    {
-        var safe = string.IsNullOrWhiteSpace(baseName) ? "ebook" : baseName;
-        var candidate = Path.Combine(dir, safe + extension);
-        var i = 1;
-        while (File.Exists(candidate))
-        {
-            candidate = Path.Combine(dir, $"{safe}_{i}{extension}");
-            i++;
-        }
-        return candidate;
-    }
-
     private static string BuildUniqueFolderName(string dir, string baseName)
     {
-        var safe = string.IsNullOrWhiteSpace(baseName) ? "ebook-assets" : baseName;
+        var safe = string.IsNullOrWhiteSpace(baseName) ? "ebook" : baseName;
         var candidate = safe;
         var i = 1;
         while (Directory.Exists(Path.Combine(dir, candidate)))

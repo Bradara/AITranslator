@@ -96,7 +96,7 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepL Free", "Azure", "Google"];
 
     public bool HasParagraphs => Paragraphs.Count > 0;
 
@@ -118,6 +118,7 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         { UseAzureTranslatorForMarkdown: true } => "Azure",
         { UseDeepLForMarkdown: true } => "DeepL",
+        { UseDeepLFreeForMarkdown: true } => "DeepL Free",
         { UseGoogleTranslateForMarkdown: true } => "Google",
         _ => "С ИИ"
     };
@@ -127,6 +128,7 @@ public partial class MarkdownViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForMarkdown = value == "Azure";
         s.UseDeepLForMarkdown = value == "DeepL";
+        s.UseDeepLFreeForMarkdown = value == "DeepL Free";
         s.UseGoogleTranslateForMarkdown = value == "Google";
         _settingsService.Save();
     }
@@ -1651,6 +1653,25 @@ public partial class MarkdownViewModel : ViewModelBase
         {
             var indexMap = indices.Where(i => i >= 0 && i < Paragraphs.Count).ToList();
 
+            // Paragraphs that are nothing but a link/image (e.g. a standalone ![](images/x.jpg))
+            // have no translatable content — copy them through untouched instead of risking a
+            // provider mangling the URL or a placeholder round-trip.
+            var linkOnly = indexMap.Where(i => MarkdownLinkProtector.IsLinkOnly(Paragraphs[i].OriginalText)).ToList();
+            foreach (var i in linkOnly)
+            {
+                Paragraphs[i].TranslatedText = Paragraphs[i].OriginalText;
+                SetLastTranslatedIndex(i);
+                translated++;
+                StatusText = $"Translated {translated}/{total}...";
+            }
+            indexMap = indexMap.Except(linkOnly).ToList();
+
+            if (indexMap.Count == 0)
+            {
+                StatusText = $"Done. {translated} of {total} paragraphs translated.";
+                return;
+            }
+
             // Shield markdown link/image URLs (e.g. ../images/00001.jpeg) from translation —
             // otherwise providers translate path segments along with the prose and break the link.
             var linkMaps = new List<string>[indexMap.Count];
@@ -1717,6 +1738,19 @@ public partial class MarkdownViewModel : ViewModelBase
             else if (settings.UseGoogleTranslateForMarkdown)
             {
                 var translations = await _translationService.TranslateGoogleFreeBatchAsync(
+                    texts, SelectedLanguage,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
+                }
+            }
+            else if (settings.UseDeepLFreeForMarkdown)
+            {
+                var translations = await _translationService.TranslateDeepLFreeBatchAsync(
                     texts, SelectedLanguage,
                     progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 

@@ -263,6 +263,111 @@ public class TranslationService
         return sb.ToString();
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    //  DeepL (free, unofficial jsonrpc endpoint — no API key required)
+    //  Reverse-engineered from deepl.com/translator's own web client, same technique
+    //  used by community tools like DeepLX. Unlike the Google free endpoint, DeepL
+    //  actively fights unofficial clients, so this is inherently more fragile and can
+    //  break whenever they change their bot-detection heuristics.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private long _deepLFreeRequestId = Random.Shared.NextInt64(8_300_000, 8_399_998) * 1000;
+
+    /// <summary>
+    /// Translate a batch of texts using the free, unofficial DeepL jsonrpc endpoint
+    /// (www2.deepl.com/jsonrpc). No API key required, but this endpoint is undocumented,
+    /// rate-limited, and may change or block requests without notice.
+    /// </summary>
+    public async Task<List<string>> TranslateDeepLFreeBatchAsync(
+        List<string> texts, string targetLanguage,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
+    {
+        var langCode = ToDeepLLang(targetLanguage);
+        var results = new string[texts.Count];
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (i > 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
+
+            var translated = await CallDeepLFreeApiAsync(texts[i], langCode, ct);
+
+            results[i] = translated;
+            onEntryTranslated?.Invoke(i, translated);
+            progress?.Report((i + 1) * 100 / texts.Count);
+        }
+
+        return [.. results];
+    }
+
+    private async Task<string> CallDeepLFreeApiAsync(string text, string targetLang, CancellationToken ct)
+    {
+        var iCount = text.Count(c => c == 'i');
+        var id = ++_deepLFreeRequestId;
+        var timestamp = GetDeepLFreeTimestamp(iCount);
+
+        var payload = new
+        {
+            jsonrpc = "2.0",
+            method = "LMT_handle_texts",
+            id,
+            @params = new
+            {
+                texts = new[] { new { text, requestAlternatives = 0 } },
+                splitting = "newlines",
+                lang = new
+                {
+                    source_lang_user_selected = "auto",
+                    target_lang = targetLang
+                },
+                timestamp
+            }
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        // DeepL's web client fingerprints its own JSON formatting around "method" for
+        // certain request ids — mirror that quirk or the request gets flagged as a bot.
+        json = (id + 5) % 29 == 0 || id % 13 == 0
+            ? json.Replace("\"method\":\"", "\"method\" : \"")
+            : json;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://www2.deepl.com/jsonrpc?method=LMT_handle_texts");
+        request.Headers.Add("Accept", "*/*");
+        request.Headers.Add("Origin", "https://www.deepl.com");
+        request.Headers.Add("Referer", "https://www.deepl.com/");
+        request.Headers.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var response = await HttpClient.SendAsync(request, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"DeepL (free) error {response.StatusCode}: {responseJson}");
+
+        using var doc = JsonDocument.Parse(responseJson);
+        if (doc.RootElement.TryGetProperty("error", out var errorEl))
+            throw new HttpRequestException($"DeepL (free) error: {errorEl}");
+
+        return doc.RootElement
+            .GetProperty("result")
+            .GetProperty("texts")[0]
+            .GetProperty("text")
+            .GetString() ?? "";
+    }
+
+    private static long GetDeepLFreeTimestamp(long iCount)
+    {
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (iCount == 0) return ts;
+
+        iCount += 1;
+        return ts - (ts % iCount) + iCount;
+    }
+
     // Azure AI Translator language code mapping
     private static string ToAzureTranslatorLang(string language) => language.ToLowerInvariant() switch
     {
