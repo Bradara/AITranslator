@@ -23,6 +23,9 @@
     <TabItem Header="📖 Preview">
       <views:MarkdownPreviewView DataContext="{Binding MarkdownPreviewTab}" />
     </TabItem>
+    <TabItem Header="💬 AI Чат">
+      <views:AiChatView DataContext="{Binding AiChatTab}" />
+    </TabItem>
     <TabItem Header="Subtitles">
       <views:SubtitlesView DataContext="{Binding SubtitlesTab}" />
     </TabItem>

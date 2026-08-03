@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -69,7 +70,19 @@ public partial class SettingsViewModel : ViewModelBase
     private string _openAiApiKey = "";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsGitHubCopilotSignedIn))]
     private string _gitHubCopilotApiKey = "";
+
+    public bool IsGitHubCopilotSignedIn => !string.IsNullOrWhiteSpace(GitHubCopilotApiKey);
+
+    [ObservableProperty]
+    private bool _isGitHubSigningIn;
+
+    [ObservableProperty]
+    private string _gitHubDeviceCode = "";
+
+    [ObservableProperty]
+    private string _gitHubSignInStatus = "";
 
     [ObservableProperty]
     private string _openRouterApiKey = "";
@@ -176,10 +189,6 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _useGoogleTranslateForMarkdown = false;
 
-    // DeepL Free (unofficial endpoint)
-    [ObservableProperty]
-    private bool _useDeepLFreeForMarkdown = false;
-
     // Azure Speech
     [ObservableProperty]
     private string _azureSpeechApiKey = "";
@@ -211,30 +220,30 @@ public partial class SettingsViewModel : ViewModelBase
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
-    // GitHub Copilot inference endpoint selection
+    // GitHub Copilot inference endpoint selection.
+    // GitHub Models (models.inference.ai.azure.com / models.github.ai — catalog, playground,
+    // inference API and BYOK) was fully retired by GitHub on 2026-07-30; api.githubcopilot.com
+    // is the only endpoint still live, so it's the only option left here.
     private static readonly string[] _ghEndpointLabels =
     [
-        "Azure Inference  (models.inference.ai.azure.com)",
         "GitHub Copilot API  (api.githubcopilot.com)",
-        "GitHub AI  (models.github.ai)",
     ];
     private static readonly string[] _ghEndpointUrls =
     [
-        "https://models.inference.ai.azure.com/chat/completions",
         "https://api.githubcopilot.com/chat/completions",
-        "https://models.github.ai/inference/chat/completions",
     ];
     public string[] GitHubEndpointLabels => _ghEndpointLabels;
 
     [ObservableProperty]
     private string _gitHubCopilotEndpointLabel = _ghEndpointLabels[0];
 
-    // Always included regardless of what the API returns
+    // Always included regardless of what the API returns.
+    // claude-* / gemini-* models are not exposed by api.githubcopilot.com/models even on Pro
+    // accounts (only surfaced inside the Copilot Chat UI), so only the always-available
+    // baseline models are kept here — everything else should come from "Fetch models".
     private static readonly string[] _ghCopilotDefaults =
     [
         "gpt-4o", "gpt-4o-mini",
-        "claude-haiku-4.5", "claude-sonnet-4",
-        "gemini-3-flash-preview",
     ];
 
     [ObservableProperty]
@@ -418,7 +427,6 @@ public partial class SettingsViewModel : ViewModelBase
         AzureTranslatorRegion = s.AzureTranslatorRegion;
         UseAzureTranslatorForMarkdown = s.UseAzureTranslatorForMarkdown;
         UseGoogleTranslateForMarkdown = s.UseGoogleTranslateForMarkdown;
-        UseDeepLFreeForMarkdown = s.UseDeepLFreeForMarkdown;
         AzureSpeechApiKey = s.AzureSpeechApiKey;
         AzureSpeechRegion = s.AzureSpeechRegion;
         SpeechSourceLanguage = s.SpeechSourceLanguage;
@@ -476,16 +484,62 @@ public partial class SettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task SignInWithGitHubAsync()
+    {
+        IsGitHubSigningIn = true;
+        GitHubDeviceCode = "";
+        GitHubSignInStatus = "Requesting a sign-in code from GitHub...";
+
+        try
+        {
+            var device = await _translationService.StartGitHubDeviceFlowAsync();
+            GitHubDeviceCode = device.UserCode;
+            GitHubSignInStatus = $"Enter code {device.UserCode} at {device.VerificationUri} (opening browser...)";
+
+            try { Process.Start(new ProcessStartInfo(device.VerificationUri) { UseShellExecute = true }); }
+            catch { /* ignore — user can navigate there manually */ }
+
+            var token = await _translationService.PollGitHubDeviceFlowAsync(device);
+
+            GitHubCopilotApiKey = token;
+            _settingsService.Settings.GitHubCopilotApiKey = token;
+            _settingsService.Save();
+
+            GitHubDeviceCode = "";
+            GitHubSignInStatus = "Signed in with GitHub.";
+            StatusText = "Signed in with GitHub Copilot.";
+        }
+        catch (Exception ex)
+        {
+            GitHubDeviceCode = "";
+            GitHubSignInStatus = $"Sign-in failed: {ex.Message}";
+        }
+        finally
+        {
+            IsGitHubSigningIn = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SignOutOfGitHub()
+    {
+        GitHubCopilotApiKey = "";
+        _settingsService.Settings.GitHubCopilotApiKey = "";
+        _settingsService.Save();
+        GitHubSignInStatus = "Signed out.";
+    }
+
+    [RelayCommand]
     private async Task FetchGitHubModelsAsync()
     {
         if (string.IsNullOrWhiteSpace(GitHubCopilotApiKey))
         {
-            StatusText = "Enter GitHub Copilot API key first.";
+            StatusText = "Sign in with GitHub first.";
             return;
         }
 
         IsFetchingModels = true;
-        StatusText = "Fetching models from GitHub Models...";
+        StatusText = "Fetching models from GitHub Copilot...";
 
         try
         {
@@ -663,7 +717,6 @@ public partial class SettingsViewModel : ViewModelBase
         s.AzureTranslatorRegion = AzureTranslatorRegion;
         s.UseAzureTranslatorForMarkdown = UseAzureTranslatorForMarkdown;
         s.UseGoogleTranslateForMarkdown = UseGoogleTranslateForMarkdown;
-        s.UseDeepLFreeForMarkdown = UseDeepLFreeForMarkdown;
         s.ThemeName = SelectedTheme;
         s.AzureSpeechApiKey = AzureSpeechApiKey;
         s.AzureSpeechRegion = AzureSpeechRegion;

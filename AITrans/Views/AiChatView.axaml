@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AITrans.ViewModels"
+             xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+             x:Class="AITrans.Views.AiChatView"
+             x:DataType="vm:AiChatViewModel">
+
+  <Grid Margin="10" ColumnDefinitions="220,4,*">
+
+    <!-- ════════════════════════════════════
+         LEFT PANEL — Sessions
+         ════════════════════════════════════ -->
+    <DockPanel Grid.Column="0">
+      <Button DockPanel.Dock="Top"
+              Content="➕ Нов чат"
+              Command="{Binding NewSessionCommand}"
+              HorizontalAlignment="Stretch"
+              Margin="0,0,0,6" />
+
+      <ListBox ItemsSource="{Binding Sessions}"
+               SelectedItem="{Binding SelectedSession}">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:CompileBindings="False">
+            <DockPanel LastChildFill="True" Margin="0,2">
+              <Button DockPanel.Dock="Right"
+                      Content="✖"
+                      FontSize="11"
+                      Padding="4,0"
+                      Command="{Binding $parent[ListBox].DataContext.DeleteSessionCommand}"
+                      CommandParameter="{Binding}"
+                      ToolTip.Tip="Изтрий сесията" />
+              <TextBlock Text="{Binding Title}"
+                         TextTrimming="CharacterEllipsis"
+                         VerticalAlignment="Center"
+                         Margin="4,0,4,0" />
+            </DockPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <GridSplitter Grid.Column="1" Background="Gray" ResizeDirection="Columns"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+    <!-- ════════════════════════════════════
+         RIGHT PANEL — Conversation
+         ════════════════════════════════════ -->
+    <DockPanel Grid.Column="2" Margin="8,0,0,0">
+
+      <!-- ── Header: provider / model pickers ── -->
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="False">
+        <TextBlock DockPanel.Dock="Left" Text="💬 AI Чат" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <ComboBox DockPanel.Dock="Left" Margin="8,0,0,0"
+                  ItemsSource="{Binding AvailableProviders}"
+                  SelectedItem="{Binding SelectedProvider}"
+                  FontSize="12"
+                  ToolTip.Tip="Доставчик — само вече конфигурираните в Настройки" />
+        <ComboBox DockPanel.Dock="Left" Margin="6,0,0,0"
+                  ItemsSource="{Binding AvailableModels}"
+                  SelectedItem="{Binding SelectedModel}"
+                  MinWidth="180"
+                  FontSize="12"
+                  ToolTip.Tip="Модел — от списъка, зададен в Настройки" />
+      </DockPanel>
+
+      <TextBlock DockPanel.Dock="Top" Text="{Binding StatusText}"
+                 IsVisible="{Binding HasStatus}"
+                 Foreground="OrangeRed" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+      <!-- ── Chat input (bottom) ── -->
+      <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,6,0,0">
+        <TextBox x:Name="ChatInputBox"
+                 Text="{Binding ChatInput}"
+                 Watermark="Въведи съобщение... (Ctrl+Enter за изпращане)"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="70"
+                 MaxHeight="150"
+                 FontSize="12"
+                 KeyDown="OnChatInputKeyDown" />
+        <DockPanel LastChildFill="False">
+          <TextBlock DockPanel.Dock="Left" Text="⏳ AI мисли..." IsVisible="{Binding IsBusy}"
+                     FontSize="11" Opacity="0.7" VerticalAlignment="Center" />
+          <Button DockPanel.Dock="Right"
+                  Content="↵ Изпрати"
+                  Command="{Binding SendCommand}"
+                  FontSize="12"
+                  ToolTip.Tip="Изпрати съобщение (Ctrl+Enter)" />
+        </DockPanel>
+      </StackPanel>
+
+      <!-- ── Messages ── -->
+      <ScrollViewer x:Name="ChatScrollViewer"
+                    VerticalScrollBarVisibility="Auto"
+                    HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding CurrentMessages}" Margin="0,0,0,4">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Panel Margin="0,0,0,6">
+
+                <!-- User message — right-aligned -->
+                <Border IsVisible="{Binding IsUser}"
+                        HorizontalAlignment="Right"
+                        MaxWidth="480"
+                        CornerRadius="10,2,10,10"
+                        Background="#1E88E5"
+                        Padding="10,7">
+                  <SelectableTextBlock Text="{Binding Content}"
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="White" />
+                </Border>
+
+                <!-- Assistant message — left-aligned, rendered as formatted Markdown -->
+                <Border IsVisible="{Binding IsAssistant}"
+                        HorizontalAlignment="Left"
+                        MaxWidth="480"
+                        CornerRadius="2,10,10,10"
+                        Padding="10,7">
+                  <Border.Background>
+                    <SolidColorBrush Color="#33808080" />
+                  </Border.Background>
+                  <md:MarkdownScrollViewer x:CompileBindings="False"
+                                           Markdown="{Binding Content}"
+                                           SelectionEnabled="True" />
+                </Border>
+
+              </Panel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+
+    </DockPanel>
+  </Grid>
+</UserControl>

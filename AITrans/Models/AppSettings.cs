@@ -25,6 +25,10 @@ public class AppSettings
     public string EbookWorkingFolder { get; set; } = "";
 
     public string OpenAiApiKey { get; set; } = "";
+    // Not a pasted PAT: GitHub Copilot's token-exchange endpoint rejects personal access tokens.
+    // This holds the long-lived access token obtained through the GitHub OAuth device flow
+    // ("Sign in with GitHub" in Settings), which TranslationService exchanges for a short-lived
+    // session token before every api.githubcopilot.com call.
     public string GitHubCopilotApiKey { get; set; } = "";
     public string OpenRouterApiKey { get; set; } = "";
     public string GeminiApiKey { get; set; } = "";
@@ -58,11 +62,12 @@ public class AppSettings
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
+    // claude-* / gemini-* models are not exposed by api.githubcopilot.com/models (Copilot Chat
+    // UI only), so the persisted default list only carries the always-available baseline —
+    // use "Fetch models" in Settings to pull whatever the account actually has access to.
     public List<string> GitHubCopilotModels { get; set; } =
     [
         "gpt-4o", "gpt-4o-mini",
-        "claude-haiku-4.5", "claude-sonnet-4",
-        "gemini-3-flash-preview",
     ];
 
     public List<string> GroqModels { get; set; } =
@@ -96,10 +101,6 @@ public class AppSettings
     // Google Translate (free, unofficial endpoint — no API key required)
     public bool UseGoogleTranslateForMarkdown { get; set; } = false;
 
-    // DeepL Free (unofficial jsonrpc endpoint — no API key/account required; distinct
-    // from DeepLFreeApi above, which toggles the free tier of the *official* DeepL API)
-    public bool UseDeepLFreeForMarkdown { get; set; } = false;
-
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";
     public string AzureSpeechRegion { get; set; } = "";
@@ -126,17 +127,7 @@ public class AppSettings
     public int DelayBetweenRequestsMs { get; set; } = 3000;
     public double Temperature { get; set; } = 1.0;
 
-    public string ActiveApiKey => Provider switch
-    {
-        AiProvider.GitHubCopilot => GitHubCopilotApiKey,
-        AiProvider.OpenRouter => OpenRouterApiKey,
-        AiProvider.Gemini => GeminiApiKey,
-        AiProvider.DeepSeek => DeepSeekApiKey,
-        AiProvider.Groq => GroqApiKey,
-        AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
-        AiProvider.Nvidia => NvidiaApiKey,
-        _ => OpenAiApiKey
-    };
+    public string ActiveApiKey => GetProviderApiKey(Provider);
 
     /// <summary>True when the active translation provider needs a non-empty API key to work.</summary>
     public bool ActiveProviderRequiresApiKey => Provider is not AiProvider.OllamaLmStudio;
@@ -153,21 +144,13 @@ public class AppSettings
         _ => OpenAiModel
     };
 
-    // GitHub Copilot inference endpoint (selectable in Settings)
+    // GitHub Copilot inference endpoint (selectable in Settings).
+    // GitHub Models (models.inference.ai.azure.com) was fully retired on 2026-07-30 —
+    // api.githubcopilot.com is the only endpoint still live.
     public string GitHubCopilotInferenceUrl { get; set; } =
-        "https://models.inference.ai.azure.com/chat/completions";
+        "https://api.githubcopilot.com/chat/completions";
 
-    public string ActiveEndpoint => Provider switch
-    {
-        AiProvider.GitHubCopilot => GitHubCopilotInferenceUrl,
-        AiProvider.OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
-        AiProvider.Gemini => "https://generativelanguage.googleapis.com/v1beta/models",
-        AiProvider.DeepSeek => "https://api.deepseek.com/chat/completions",
-        AiProvider.Groq => "https://api.x.ai/v1/chat/completions",
-        AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
-        AiProvider.Nvidia => "https://integrate.api.nvidia.com/v1/chat/completions",
-        _ => "https://api.openai.com/v1/chat/completions"
-    };
+    public string ActiveEndpoint => GetProviderEndpoint(Provider);
 
     // ── Chat (AI Assistant) active settings ─────────────────────────────────
     // Falls back to the translation provider when the chat-specific key is not set
@@ -199,7 +182,22 @@ public class AppSettings
         }
     }
 
-    public string ChatActiveApiKey => EffectiveChatProvider switch
+    public string ChatActiveApiKey => GetProviderApiKey(EffectiveChatProvider);
+
+    /// <summary>True when the active chat provider needs a non-empty API key to work.</summary>
+    public bool ChatProviderRequiresApiKey => ProviderRequiresApiKey(EffectiveChatProvider);
+
+    public string ChatActiveModel => GetChatModel(EffectiveChatProvider);
+
+    public string ChatActiveEndpoint => GetProviderEndpoint(EffectiveChatProvider);
+
+    // ── Generic per-provider accessors ──────────────────────────────────────
+    // Unlike ChatActiveXxx (which always resolves through EffectiveChatProvider,
+    // the single app-wide "Chat AI" setting), these accept an arbitrary provider
+    // so callers — like the standalone AI Chat tab — can let the user pick any
+    // already-configured provider/model independently of that global setting.
+
+    public string GetProviderApiKey(AiProvider provider) => provider switch
     {
         AiProvider.GitHubCopilot  => GitHubCopilotApiKey,
         AiProvider.OpenRouter     => OpenRouterApiKey,
@@ -211,10 +209,27 @@ public class AppSettings
         _                         => OpenAiApiKey
     };
 
-    /// <summary>True when the active chat provider needs a non-empty API key to work.</summary>
-    public bool ChatProviderRequiresApiKey => EffectiveChatProvider != AiProvider.OllamaLmStudio;
+    public string GetProviderEndpoint(AiProvider provider) => provider switch
+    {
+        AiProvider.GitHubCopilot  => GitHubCopilotInferenceUrl,
+        AiProvider.OpenRouter     => "https://openrouter.ai/api/v1/chat/completions",
+        AiProvider.Gemini         => "https://generativelanguage.googleapis.com/v1beta/models",
+        AiProvider.DeepSeek       => "https://api.deepseek.com/chat/completions",
+        AiProvider.Groq           => "https://api.x.ai/v1/chat/completions",
+        AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
+        AiProvider.Nvidia         => "https://integrate.api.nvidia.com/v1/chat/completions",
+        _                         => "https://api.openai.com/v1/chat/completions"
+    };
 
-    public string ChatActiveModel => EffectiveChatProvider switch
+    /// <summary>True when the given provider needs a non-empty API key to work.</summary>
+    public bool ProviderRequiresApiKey(AiProvider provider) => provider != AiProvider.OllamaLmStudio;
+
+    /// <summary>True when the given provider has whatever it needs (API key, or local endpoint) to be usable.</summary>
+    public bool IsProviderConfigured(AiProvider provider) =>
+        !ProviderRequiresApiKey(provider) || !string.IsNullOrWhiteSpace(GetProviderApiKey(provider));
+
+    /// <summary>The Chat AI model configured in Settings for the given provider.</summary>
+    public string GetChatModel(AiProvider provider) => provider switch
     {
         AiProvider.GitHubCopilot  => ChatGitHubCopilotModel,
         AiProvider.OpenRouter     => ChatOpenRouterModel,
@@ -226,15 +241,29 @@ public class AppSettings
         _                         => ChatOpenAiModel
     };
 
-    public string ChatActiveEndpoint => EffectiveChatProvider switch
+    /// <summary>
+    /// The model choices configured in Settings for the given provider — the user-extensible
+    /// picker list where one exists (GitHub Copilot, Groq, OpenRouter, Ollama/LM Studio),
+    /// otherwise just the single model configured for that provider.
+    /// </summary>
+    public List<string> GetChatModelOptions(AiProvider provider) => provider switch
     {
-        AiProvider.GitHubCopilot  => GitHubCopilotInferenceUrl,
-        AiProvider.OpenRouter     => "https://openrouter.ai/api/v1/chat/completions",
-        AiProvider.Gemini         => "https://generativelanguage.googleapis.com/v1beta/models",
-        AiProvider.DeepSeek       => "https://api.deepseek.com/chat/completions",
-        AiProvider.Groq           => "https://api.x.ai/v1/chat/completions",
-        AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
-        AiProvider.Nvidia         => "https://integrate.api.nvidia.com/v1/chat/completions",
-        _                         => "https://api.openai.com/v1/chat/completions"
+        AiProvider.GitHubCopilot  => GitHubCopilotModels,
+        AiProvider.Groq           => GroqModels,
+        AiProvider.OpenRouter     => OpenRouterFreeModels,
+        AiProvider.OllamaLmStudio => OllamaModels,
+        _                         => [GetChatModel(provider)]
+    };
+
+    public static string DisplayName(AiProvider provider) => provider switch
+    {
+        AiProvider.GitHubCopilot  => "GitHub Copilot",
+        AiProvider.OpenRouter     => "OpenRouter",
+        AiProvider.Gemini         => "Gemini",
+        AiProvider.DeepSeek       => "DeepSeek",
+        AiProvider.Groq           => "xAI",
+        AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
+        AiProvider.Nvidia         => "Nvidia",
+        _                         => "OpenAI"
     };
 }

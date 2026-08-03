@@ -28,8 +28,15 @@ public class TranslationService
         PooledConnectionLifetime = TimeSpan.FromMinutes(15),
     });
     private const int MaxRetries = 3;
-    private const int LocalTranslationMinTokens = 256;
-    private const int LocalTranslationMaxTokens = 2048;
+    private const int LocalTranslationMinTokens = 512;
+    private const int LocalTranslationMaxTokens = 4096;
+
+    // Reasoning models can spend their entire token budget "thinking" (surfaced separately as
+    // reasoning_content by some OpenAI-compatible servers, e.g. llama.cpp / DeepSeek) and never
+    // reach the actual answer, leaving finish_reason=length with empty content. When that
+    // signature is detected we retry once with a much larger budget before giving up.
+    private const int ReasoningRetryMaxTokens = 8192;
+    private const int ReasoningRetryDefaultTokens = 4096;
     private int _rotationIndex;
 
     /// <summary>
@@ -263,111 +270,6 @@ public class TranslationService
         return sb.ToString();
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    //  DeepL (free, unofficial jsonrpc endpoint — no API key required)
-    //  Reverse-engineered from deepl.com/translator's own web client, same technique
-    //  used by community tools like DeepLX. Unlike the Google free endpoint, DeepL
-    //  actively fights unofficial clients, so this is inherently more fragile and can
-    //  break whenever they change their bot-detection heuristics.
-    // ──────────────────────────────────────────────────────────────────────────
-
-    private long _deepLFreeRequestId = Random.Shared.NextInt64(8_300_000, 8_399_998) * 1000;
-
-    /// <summary>
-    /// Translate a batch of texts using the free, unofficial DeepL jsonrpc endpoint
-    /// (www2.deepl.com/jsonrpc). No API key required, but this endpoint is undocumented,
-    /// rate-limited, and may change or block requests without notice.
-    /// </summary>
-    public async Task<List<string>> TranslateDeepLFreeBatchAsync(
-        List<string> texts, string targetLanguage,
-        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
-        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
-    {
-        var langCode = ToDeepLLang(targetLanguage);
-        var results = new string[texts.Count];
-
-        for (int i = 0; i < texts.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (i > 0 && delayBetweenRequestsMs > 0)
-                await Task.Delay(delayBetweenRequestsMs, ct);
-
-            var translated = await CallDeepLFreeApiAsync(texts[i], langCode, ct);
-
-            results[i] = translated;
-            onEntryTranslated?.Invoke(i, translated);
-            progress?.Report((i + 1) * 100 / texts.Count);
-        }
-
-        return [.. results];
-    }
-
-    private async Task<string> CallDeepLFreeApiAsync(string text, string targetLang, CancellationToken ct)
-    {
-        var iCount = text.Count(c => c == 'i');
-        var id = ++_deepLFreeRequestId;
-        var timestamp = GetDeepLFreeTimestamp(iCount);
-
-        var payload = new
-        {
-            jsonrpc = "2.0",
-            method = "LMT_handle_texts",
-            id,
-            @params = new
-            {
-                texts = new[] { new { text, requestAlternatives = 0 } },
-                splitting = "newlines",
-                lang = new
-                {
-                    source_lang_user_selected = "auto",
-                    target_lang = targetLang
-                },
-                timestamp
-            }
-        };
-
-        var json = JsonSerializer.Serialize(payload);
-        // DeepL's web client fingerprints its own JSON formatting around "method" for
-        // certain request ids — mirror that quirk or the request gets flagged as a bot.
-        json = (id + 5) % 29 == 0 || id % 13 == 0
-            ? json.Replace("\"method\":\"", "\"method\" : \"")
-            : json;
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://www2.deepl.com/jsonrpc?method=LMT_handle_texts");
-        request.Headers.Add("Accept", "*/*");
-        request.Headers.Add("Origin", "https://www.deepl.com");
-        request.Headers.Add("Referer", "https://www.deepl.com/");
-        request.Headers.UserAgent.ParseAdd(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        using var response = await HttpClient.SendAsync(request, ct);
-        var responseJson = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"DeepL (free) error {response.StatusCode}: {responseJson}");
-
-        using var doc = JsonDocument.Parse(responseJson);
-        if (doc.RootElement.TryGetProperty("error", out var errorEl))
-            throw new HttpRequestException($"DeepL (free) error: {errorEl}");
-
-        return doc.RootElement
-            .GetProperty("result")
-            .GetProperty("texts")[0]
-            .GetProperty("text")
-            .GetString() ?? "";
-    }
-
-    private static long GetDeepLFreeTimestamp(long iCount)
-    {
-        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (iCount == 0) return ts;
-
-        iCount += 1;
-        return ts - (ts % iCount) + iCount;
-    }
-
     // Azure AI Translator language code mapping
     private static string ToAzureTranslatorLang(string language) => language.ToLowerInvariant() switch
     {
@@ -452,40 +354,165 @@ public class TranslationService
         return [.. results];
     }
 
+    // ── GitHub Copilot OAuth device flow ────────────────────────────────────
+    // As of 2026, api.github.com/copilot_internal/v2/token (the exchange every call to
+    // api.githubcopilot.com requires) rejects personal access tokens outright — classic and
+    // fine-grained alike — with "Personal Access Tokens are not supported for this endpoint".
+    // The only credential that still works is a user access token obtained through GitHub's
+    // OAuth device flow, the same mechanism editor integrations (VS Code, Neovim, JetBrains)
+    // use. The client id below is GitHub's own public "Copilot Editor" OAuth app id — it is not
+    // a secret, it's baked into every open-source Copilot client, and it only ever grants access
+    // to the signed-in user's own Copilot subscription via their normal GitHub login/consent.
+    private const string GitHubCopilotOAuthClientId = "Iv1.b507a08c87ecfe98";
+
+    public record GitHubDeviceCode(string DeviceCode, string UserCode, string VerificationUri, int ExpiresIn, int Interval);
+
+    /// <summary>Step 1 of the device flow: ask GitHub for a user code to display.</summary>
+    public async Task<GitHubDeviceCode> StartGitHubDeviceFlowAsync(CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/device/code");
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        req.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"] = GitHubCopilotOAuthClientId,
+            ["scope"] = "read:user"
+        });
+        using var resp = await HttpClient.SendAsync(req, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"Could not start GitHub sign-in ({(int)resp.StatusCode} {resp.StatusCode}): {json}");
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        return new GitHubDeviceCode(
+            root.GetProperty("device_code").GetString()!,
+            root.GetProperty("user_code").GetString()!,
+            root.GetProperty("verification_uri").GetString()!,
+            root.GetProperty("expires_in").GetInt32(),
+            root.TryGetProperty("interval", out var iv) ? iv.GetInt32() : 5);
+    }
+
+    /// <summary>Step 2: poll until the user finishes authorizing in the browser, returning the long-lived access token.</summary>
+    public async Task<string> PollGitHubDeviceFlowAsync(GitHubDeviceCode device, CancellationToken ct = default)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(device.Interval, 5));
+        var deadline = DateTime.UtcNow.AddSeconds(device.ExpiresIn);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(interval, ct);
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://github.com/login/oauth/access_token");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            req.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = GitHubCopilotOAuthClientId,
+                ["device_code"] = device.DeviceCode,
+                ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code"
+            });
+            using var resp = await HttpClient.SendAsync(req, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("access_token", out var tokenEl))
+                return tokenEl.GetString()!;
+
+            var error = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : null;
+            switch (error)
+            {
+                case "authorization_pending":
+                    continue;
+                case "slow_down":
+                    interval += TimeSpan.FromSeconds(5);
+                    continue;
+                case "expired_token":
+                    throw new TimeoutException("The GitHub sign-in code expired before it was authorized. Please try again.");
+                case "access_denied":
+                    throw new InvalidOperationException("GitHub sign-in was cancelled.");
+                default:
+                    throw new HttpRequestException($"GitHub sign-in failed: {json}");
+            }
+        }
+
+        throw new TimeoutException("The GitHub sign-in code expired before it was authorized. Please try again.");
+    }
+
+    private readonly record struct CopilotSessionToken(string Token, DateTimeOffset ExpiresAt);
+    private readonly Dictionary<string, CopilotSessionToken> _copilotSessionTokens = new();
+    private readonly SemaphoreSlim _copilotTokenLock = new(1, 1);
+
     /// <summary>
-    /// Fetches available models from the GitHub Models API and GitHub Copilot Pro API
-    /// (models.inference.ai.azure.com + api.githubcopilot.com), merging both lists.
+    /// Exchanges the long-lived GitHub access token (from the device flow) for the short-lived
+    /// (~25-30 min) session token api.githubcopilot.com actually accepts as a Bearer token,
+    /// caching it in memory until shortly before it expires.
     /// </summary>
-    public async Task<List<string>> FetchGitHubModelsAsync(string apiKey, CancellationToken ct = default)
+    private async Task<string> GetCopilotSessionTokenAsync(string oauthToken, CancellationToken ct)
+    {
+        await _copilotTokenLock.WaitAsync(ct);
+        try
+        {
+            if (_copilotSessionTokens.TryGetValue(oauthToken, out var cached)
+                && cached.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(60))
+            {
+                return cached.Token;
+            }
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/copilot_internal/v2/token");
+            req.Headers.Authorization = new AuthenticationHeaderValue("token", oauthToken);
+            req.Headers.UserAgent.ParseAdd("GithubCopilot/1.270.0");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var resp = await HttpClient.SendAsync(req, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException(
+                    $"Could not obtain a GitHub Copilot session token ({(int)resp.StatusCode} {resp.StatusCode}): {json}. "
+                    + "Sign in with GitHub again in Settings.");
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var token = root.GetProperty("token").GetString()!;
+            var expiresAt = DateTimeOffset.FromUnixTimeSeconds(root.GetProperty("expires_at").GetInt64());
+
+            var session = new CopilotSessionToken(token, expiresAt);
+            _copilotSessionTokens[oauthToken] = session;
+            return session.Token;
+        }
+        finally
+        {
+            _copilotTokenLock.Release();
+        }
+    }
+
+    private static void ApplyCopilotHeaders(HttpRequestMessage request)
+    {
+        request.Headers.TryAddWithoutValidation("Copilot-Integration-Id", "vscode-chat");
+        request.Headers.TryAddWithoutValidation("Editor-Version", "vscode/1.104.0");
+        request.Headers.TryAddWithoutValidation("Editor-Plugin-Version", "copilot-chat/0.23.0");
+        request.Headers.UserAgent.ParseAdd("GithubCopilot/1.270.0");
+    }
+
+    /// <summary>
+    /// Fetches available models from the GitHub Copilot API (api.githubcopilot.com/models).
+    /// GitHub Models (models.github.ai / models.inference.ai.azure.com — catalog, playground,
+    /// inference API and BYOK) was fully retired by GitHub on 2026-07-30, so that endpoint is
+    /// gone and must not be queried anymore.
+    /// </summary>
+    /// <param name="oauthToken">The long-lived GitHub access token obtained via the device flow (see <see cref="StartGitHubDeviceFlowAsync"/>).</param>
+    public async Task<List<string>> FetchGitHubModelsAsync(string oauthToken, CancellationToken ct = default)
     {
         var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sessionToken = await GetCopilotSessionTokenAsync(oauthToken, ct);
 
-        // ── Endpoint 1: GitHub Models (free + Pro)
-        try
-        {
-            using var req1 = new HttpRequestMessage(HttpMethod.Get,
-                "https://models.github.ai/catalog/models");
-               // "https://models.inference.ai.azure.com/models");
-            req1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            using var resp1 = await HttpClient.SendAsync(req1, ct);
-            var json1 = await resp1.Content.ReadAsStringAsync(ct);
-            if (resp1.IsSuccessStatusCode)
-                ExtractModelsFromArray(json1, models);
-        }
-        catch { /* ignore — Copilot endpoint may still succeed */ }
-
-        // ── Endpoint 2: Copilot Pro models
-        try
-        {
-            using var req2 = new HttpRequestMessage(HttpMethod.Get,
-                "https://api.githubcopilot.com/models");
-            req2.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            using var resp2 = await HttpClient.SendAsync(req2, ct);
-            var json2 = await resp2.Content.ReadAsStringAsync(ct);
-            if (resp2.IsSuccessStatusCode)
-                ExtractModelsFromArray(json2, models);
-        }
-        catch { /* ignore */ }
+        using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.githubcopilot.com/models");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken);
+        ApplyCopilotHeaders(req);
+        using var resp = await HttpClient.SendAsync(req, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"GitHub Copilot API error ({(int)resp.StatusCode} {resp.StatusCode}): {json}");
+        ExtractModelsFromArray(json, models);
 
         return models.OrderBy(m => m).ToList();
     }
@@ -884,7 +911,7 @@ public class TranslationService
 
     private async Task<string> CallApiAsync(
         string systemPrompt, string userMessage, string apiKey, string model, string endpoint,
-        CancellationToken ct, AppSettings? settings = null)
+        CancellationToken ct, AppSettings? settings = null, int? maxTokensOverride = null)
     {
         if (settings?.Provider == AiProvider.Gemini)
             return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
@@ -901,7 +928,7 @@ public class TranslationService
             };
 
         var isLocalTranslation = IsLocalTranslationProvider(settings, endpoint) && string.IsNullOrWhiteSpace(systemPrompt);
-        var maxTokens = isLocalTranslation ? EstimateLocalTranslationMaxTokens(userMessage) : (int?)null;
+        var maxTokens = maxTokensOverride ?? (isLocalTranslation ? EstimateLocalTranslationMaxTokens(userMessage) : (int?)null);
 
         var requestBody = new Dictionary<string, object?>
         {
@@ -910,14 +937,25 @@ public class TranslationService
             ["temperature"] = isLocalTranslation ? GetLocalTranslationTemperature() : settings?.Temperature ?? 1.0
         };
 
-        if (isLocalTranslation)
+        if (maxTokens.HasValue)
             requestBody["max_tokens"] = maxTokens;
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        var isCopilotEndpoint = endpoint.Contains("api.githubcopilot.com", StringComparison.OrdinalIgnoreCase);
+        if (isCopilotEndpoint && !string.IsNullOrWhiteSpace(apiKey))
+        {
+            // apiKey here is the long-lived device-flow access token; exchange it for the
+            // short-lived session token the Copilot API actually accepts as a Bearer token.
+            var sessionToken = await GetCopilotSessionTokenAsync(apiKey, ct);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken);
+            ApplyCopilotHeaders(request);
+        }
         // Local OpenAI-compatible servers can work without an API key; skip the header when key is empty
-        if (!string.IsNullOrWhiteSpace(apiKey))
+        else if (!string.IsNullOrWhiteSpace(apiKey))
+        {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var response = await HttpClient.SendAsync(request, ct);
@@ -933,11 +971,68 @@ public class TranslationService
         }
 
         using var doc = JsonDocument.Parse(responseJson);
-        return doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString() ?? "";
+        var (content, truncatedWhileReasoning) = ParseOpenAiChoice(doc.RootElement);
+
+        if (truncatedWhileReasoning && maxTokensOverride == null)
+        {
+            Debug.WriteLine("[TranslationService] Reasoning model exhausted its budget before answering — retrying with a larger token budget.");
+            var boosted = maxTokens.HasValue
+                ? Math.Min(maxTokens.Value * 4, ReasoningRetryMaxTokens)
+                : ReasoningRetryDefaultTokens;
+            return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings, boosted);
+        }
+
+        return content;
+    }
+
+    // ── Reasoning ("thinking") model output cleanup ─────────────────────────
+    // Reasoning models (DeepSeek R1, QwQ, some GitHub Copilot models, etc.) emit their
+    // chain-of-thought inline in the response — typically wrapped in <think>/<thinking>/
+    // <reasoning> tags — ahead of the actual answer. Since callers (translation parsing,
+    // chat display) only expect the final answer, strip that block out before returning.
+    private static readonly Regex ThinkingBlockRegex = new(
+        @"<(think|thinking|reasoning)>.*?</\1>",
+        RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static string StripThinkingBlock(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        var stripped = ThinkingBlockRegex.Replace(content, "");
+
+        // Truncated output (hit the token limit mid-thought) can leave an unclosed opening
+        // tag with no matching close — there's no real answer left after it, so drop the rest.
+        var openTagMatch = Regex.Match(stripped, @"<(think|thinking|reasoning)>", RegexOptions.IgnoreCase);
+        if (openTagMatch.Success)
+            stripped = stripped[..openTagMatch.Index];
+
+        return stripped.Trim();
+    }
+
+    /// <summary>
+    /// Extracts the assistant's content from an OpenAI-compatible <c>choices[0].message</c> object,
+    /// stripping any inline thinking block, and flags the case where a reasoning model burned its
+    /// whole token budget thinking (finish_reason=length) and left content empty with the chain-of-
+    /// thought only in a separate reasoning_content field — a signal that a bigger budget is needed.
+    /// </summary>
+    private static (string Content, bool TruncatedWhileReasoning) ParseOpenAiChoice(JsonElement root)
+    {
+        var choice = root.GetProperty("choices")[0];
+        var message = choice.GetProperty("message");
+
+        var rawContent = message.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String
+            ? contentEl.GetString() ?? ""
+            : "";
+        var content = StripThinkingBlock(rawContent);
+
+        var finishReason = choice.TryGetProperty("finish_reason", out var frEl) ? frEl.GetString() : null;
+        var hasReasoning = message.TryGetProperty("reasoning_content", out var reasoningEl)
+            && reasoningEl.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(reasoningEl.GetString());
+
+        var truncatedWhileReasoning = string.IsNullOrWhiteSpace(content) && finishReason == "length" && hasReasoning;
+        return (content, truncatedWhileReasoning);
     }
 
     private async Task<string> CallGeminiApiAsync(
@@ -974,12 +1069,12 @@ public class TranslationService
                 $"API error ({(int)response.StatusCode} {response.StatusCode}): {responseJson}");
 
         using var doc = JsonDocument.Parse(responseJson);
-        return doc.RootElement
+        return StripThinkingBlock(doc.RootElement
             .GetProperty("candidates")[0]
             .GetProperty("content")
             .GetProperty("parts")[0]
             .GetProperty("text")
-            .GetString() ?? "";
+            .GetString() ?? "");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -990,15 +1085,51 @@ public class TranslationService
     /// Sends a new user message together with the full conversation history
     /// and returns the assistant's reply.
     /// </summary>
-    public async Task<string> ChatWithHistoryAsync(
+    public Task<string> ChatWithHistoryAsync(
         string systemPrompt,
         IReadOnlyList<ChatMessage> history,
         string userMessage,
         AppSettings? settings = null,
         CancellationToken ct = default)
     {
-        if (settings?.EffectiveChatProvider == AiProvider.Gemini)
-            return await CallGeminiChatWithHistoryAsync(systemPrompt, history, userMessage, settings, ct);
+        var provider = settings?.EffectiveChatProvider ?? AiProvider.OpenAI;
+        return ChatWithHistoryAsync(
+            systemPrompt, history, userMessage, provider,
+            settings?.ChatActiveApiKey ?? "", settings?.ChatActiveModel ?? "", settings?.ChatActiveEndpoint ?? "",
+            settings?.Temperature ?? 1.0, ct);
+    }
+
+    /// <summary>
+    /// Sends a new user message together with the full conversation history using an explicit
+    /// provider/model/endpoint rather than the single app-wide "Chat AI" setting — used by the
+    /// standalone AI Chat tab, where the provider and model are chosen per-session.
+    /// </summary>
+    public Task<string> ChatWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<ChatMessage> history,
+        string userMessage,
+        AiProvider provider,
+        string apiKey,
+        string model,
+        string endpoint,
+        double temperature,
+        CancellationToken ct = default)
+        => ChatWithHistoryAsync(systemPrompt, history, userMessage, provider, apiKey, model, endpoint, temperature, null, ct);
+
+    private async Task<string> ChatWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<ChatMessage> history,
+        string userMessage,
+        AiProvider provider,
+        string apiKey,
+        string model,
+        string endpoint,
+        double temperature,
+        int? maxTokensOverride,
+        CancellationToken ct)
+    {
+        if (provider == AiProvider.Gemini)
+            return await CallGeminiChatWithHistoryAsync(systemPrompt, history, userMessage, apiKey, model, endpoint, temperature, ct);
 
         // Build OpenAI-compatible messages array
         var messages = new List<object>
@@ -1017,20 +1148,32 @@ public class TranslationService
 
         messages.Add(new { role = "user", content = userMessage });
 
-        var apiKey   = settings?.ChatActiveApiKey   ?? "";
-        var model    = settings?.ChatActiveModel ?? "";
-        var endpoint = settings?.ChatActiveEndpoint ?? "";
-
-        var requestBody = new
+        var requestBody = new Dictionary<string, object?>
         {
-            model,
-            messages,
-            temperature = settings?.Temperature ?? 1.0
+            ["model"] = model,
+            ["messages"] = messages,
+            ["temperature"] = temperature
         };
+
+        if (maxTokensOverride.HasValue)
+            requestBody["max_tokens"] = maxTokensOverride;
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        var isCopilotEndpoint = endpoint.Contains("api.githubcopilot.com", StringComparison.OrdinalIgnoreCase);
+        if (isCopilotEndpoint && !string.IsNullOrWhiteSpace(apiKey))
+        {
+            // apiKey here is the long-lived device-flow access token; exchange it for the
+            // short-lived session token the Copilot API actually accepts as a Bearer token.
+            var sessionToken = await GetCopilotSessionTokenAsync(apiKey, ct);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken);
+            ApplyCopilotHeaders(request);
+        }
+        // Local OpenAI-compatible servers can work without an API key; skip the header when key is empty
+        else if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var response = await HttpClient.SendAsync(request, ct);
@@ -1043,23 +1186,31 @@ public class TranslationService
                 $"API error ({(int)response.StatusCode} {response.StatusCode}): {responseJson}");
 
         using var doc = JsonDocument.Parse(responseJson);
-        return doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString() ?? "";
+        var (content, truncatedWhileReasoning) = ParseOpenAiChoice(doc.RootElement);
+
+        if (truncatedWhileReasoning && maxTokensOverride == null)
+        {
+            Debug.WriteLine("[TranslationService][Chat] Reasoning model exhausted its budget before answering — retrying with a larger token budget.");
+            return await ChatWithHistoryAsync(
+                systemPrompt, history, userMessage, provider, apiKey, model, endpoint, temperature,
+                ReasoningRetryDefaultTokens, ct);
+        }
+
+        return content;
     }
 
     private async Task<string> CallGeminiChatWithHistoryAsync(
         string systemPrompt,
         IReadOnlyList<ChatMessage> history,
         string userMessage,
-        AppSettings settings,
+        string apiKey,
+        string model,
+        string baseEndpoint,
+        double temperature,
         CancellationToken ct)
     {
-        var model    = settings.ChatActiveModel;
-        var endpoint = settings.ChatActiveEndpoint.TrimEnd('/');
-        var url      = $"{endpoint}/{model}:generateContent?key={Uri.EscapeDataString(settings.GeminiApiKey)}";
+        var endpoint = baseEndpoint.TrimEnd('/');
+        var url = $"{endpoint}/{model}:generateContent?key={Uri.EscapeDataString(apiKey)}";
 
         // Gemini requires alternating user/model turns; merge consecutive same-role messages
         var contents = new List<object>();
@@ -1074,7 +1225,7 @@ public class TranslationService
         {
             system_instruction = new { parts = new[] { new { text = systemPrompt } } },
             contents,
-            generationConfig = new { temperature = settings.Temperature }
+            generationConfig = new { temperature }
         };
 
         var json = JsonSerializer.Serialize(requestBody);
@@ -1091,11 +1242,11 @@ public class TranslationService
                 $"API error ({(int)response.StatusCode} {response.StatusCode}): {responseJson}");
 
         using var doc = JsonDocument.Parse(responseJson);
-        return doc.RootElement
+        return StripThinkingBlock(doc.RootElement
             .GetProperty("candidates")[0]
             .GetProperty("content")
             .GetProperty("parts")[0]
             .GetProperty("text")
-            .GetString() ?? "";
+            .GetString() ?? "");
     }
 }

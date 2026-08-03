@@ -15,8 +15,11 @@ public class SettingsService
 
     private static readonly string SettingsPath = Path.Combine(SettingsDir, "settings.json");
     private static readonly string ChatHistoryPath = Path.Combine(SettingsDir, "chat-history.json");
+    private static readonly string ChatSessionsPath = Path.Combine(SettingsDir, "ai-chat-sessions.json");
 
     private const int MaxMessagesPerKey = 100;
+    private const int MaxChatSessions = 200;
+    private const int MaxMessagesPerSession = 300;
 
     /// <summary>App-specific entropy for DPAPI so settings.json can't be decrypted by other
     /// tools that simply call CryptUnprotectData for the current user with no entropy.</summary>
@@ -112,5 +115,44 @@ public class SettingsService
 
         var json = JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(ChatHistoryPath, json);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  AI Chat tab — session persistence
+    // ──────────────────────────────────────────────────────────────────────────
+
+    public List<ChatSession> LoadChatSessions()
+    {
+        if (!File.Exists(ChatSessionsPath))
+            return [];
+
+        try
+        {
+            var json = File.ReadAllText(ChatSessionsPath);
+            return JsonSerializer.Deserialize<List<ChatSession>>(json) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public void SaveChatSessions(List<ChatSession> sessions)
+    {
+        Directory.CreateDirectory(SettingsDir);
+
+        var trimmed = sessions.Count > MaxChatSessions
+            ? sessions.GetRange(sessions.Count - MaxChatSessions, MaxChatSessions)
+            : sessions;
+
+        foreach (var session in trimmed)
+        {
+            if (session.Messages.Count > MaxMessagesPerSession)
+                session.Messages = session.Messages.GetRange(
+                    session.Messages.Count - MaxMessagesPerSession, MaxMessagesPerSession);
+        }
+
+        var json = JsonSerializer.Serialize(trimmed, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(ChatSessionsPath, json);
     }
 }

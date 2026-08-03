@@ -12,6 +12,7 @@ public partial class MainViewModel : ViewModelBase
     public SubtitlesViewModel SubtitlesTab { get; }
     public MarkdownViewModel MarkdownTab { get; }
     public MarkdownPreviewViewModel MarkdownPreviewTab { get; }
+    public AiChatViewModel AiChatTab { get; }
     public SettingsViewModel SettingsTab { get; }
     public FlashcardsViewModel FlashcardsTab { get; }
     public MemoryGameViewModel MemoryGameTab { get; }
@@ -33,6 +34,7 @@ public partial class MainViewModel : ViewModelBase
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService, flashcardService, sharedWordList);
+        AiChatTab = new AiChatViewModel(translationService, _settingsService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
         FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService, sharedWordList);
         MemoryGameTab = new MemoryGameViewModel(flashcardService);
@@ -43,5 +45,6 @@ public partial class MainViewModel : ViewModelBase
         SubtitlesTab.PersistSessionState();
         MarkdownTab.PersistSessionState();
         MarkdownPreviewTab.PersistSessionState();
+        AiChatTab.PersistSessionState();
     }
 }

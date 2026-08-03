@@ -14,7 +14,7 @@
       <Button x:Name="ImportEbookBtn" Content="📥 Import EPUB/FB2" Click="OnImportEbookClick" />
       <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguage}" Width="150" />
       <ComboBox ItemsSource="{Binding AvailableTranslationProviders}" SelectedItem="{Binding TranslationProviderMode}"
-                Width="130" ToolTip.Tip="Доставчик за превод" />
+                Width="110" ToolTip.Tip="Доставчик за превод" />
       <Button Content="▶ Translate All" Command="{Binding TranslateCommand}" />
       <Button Content="▶ Selected" Command="{Binding TranslateSelectedCommand}" ToolTip.Tip="Translate only selected rows" />
       <Button Content="▶ From Here" Command="{Binding TranslateFromSelectedCommand}" ToolTip.Tip="Translate from selected row to end" />
@@ -40,7 +40,7 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,5">
       <TextBlock Text="Ред:" VerticalAlignment="Center" />
       <NumericUpDown Value="{Binding GoToRowNumber}" Minimum="1" Maximum="{Binding Paragraphs.Count}"
-                     Width="100" ShowButtonSpinner="True" ToolTip.Tip="Номер на реда, до който да се премине" />
+                     Width="120" ShowButtonSpinner="True" ToolTip.Tip="Номер на реда, до който да се премине" />
       <Button Content="⏵ Иди" Command="{Binding GoToRowCommand}" ToolTip.Tip="Премини към зададения ред" />
       <TextBlock VerticalAlignment="Center" MinWidth="80" Opacity="0.75">
         <TextBlock.Text>
