@@ -40,10 +40,9 @@ public partial class MarkdownView : UserControl
             vm.LoadCacheFromKey(window.SelectedKey);
     }
 
-    // ── Active row: suggested (not auto-scrolled) on tab activation ─────────
-    // Auto-scrolling the virtualized DataGrid right when the tab becomes visible proved
-    // unreliable (rows not yet realized at that point). Instead we just pre-fill the
-    // "go to row" navigator with the last active row; the user confirms via "Иди".
+    // ── Active row: restored and scrolled to on tab activation ──────────────
+    // The DataGrid may not have realized rows yet right when the tab becomes visible, so
+    // ScrollIntoView is re-issued a few times (see ScrollGridToRowWithRetry) until it settles.
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -63,8 +62,8 @@ public partial class MarkdownView : UserControl
     private void RequestRowSuggestion()
     {
         if (DataContext is MarkdownViewModel vm)
-            vm.SuggestRestoreRow();
-        Dispatcher.UIThread.Post(SubscribeScrollChanged, DispatcherPriority.Loaded);
+            vm.RequestRestoreScroll();
+        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -103,7 +102,8 @@ public partial class MarkdownView : UserControl
         _pendingScrollRow = vm.ScrollToRow;
         vm.ScrollToRow = -1; // consume the signal
 
-        Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+        if (IsVisible)
+            Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
     }
 
     private ScrollViewer? GridScrollViewer()
@@ -113,8 +113,21 @@ public partial class MarkdownView : UserControl
     {
         SubscribeScrollChanged();
         if (_pendingScrollRow < 0) return;
-        ScrollGridToRow(_pendingScrollRow);
+        var rowIndex = _pendingScrollRow;
         _pendingScrollRow = -1;
+        ScrollGridToRowWithRetry(rowIndex, attemptsLeft: 3);
+    }
+
+    /// <summary>
+    /// Right after the tab becomes visible, the DataGrid's virtualized rows may not be realized
+    /// yet, so the first ScrollIntoView can silently miss. Re-issuing it a couple more times over
+    /// the following dispatcher cycles lets it settle once layout has caught up.
+    /// </summary>
+    private void ScrollGridToRowWithRetry(int rowIndex, int attemptsLeft)
+    {
+        ScrollGridToRow(rowIndex);
+        if (attemptsLeft <= 1) return;
+        Dispatcher.UIThread.Post(() => ScrollGridToRowWithRetry(rowIndex, attemptsLeft - 1), DispatcherPriority.Background);
     }
 
     // ── Active-row tracking while scrolling (mouse wheel, scrollbar, keyboard) ─

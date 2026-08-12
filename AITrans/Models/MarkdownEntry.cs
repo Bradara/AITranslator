@@ -29,14 +29,27 @@ public partial class MarkdownEntry : ObservableObject
     [ObservableProperty]
     private string _translatedText = "";
 
+    [ObservableProperty]
+    private bool _isSearchMatch;
+
+    [ObservableProperty]
+    private bool _isCurrentSearchMatch;
+
     /// <summary>Safe-for-display version of OriginalText (appends zero-width space).</summary>
     public string DisplayOriginalText => string.IsNullOrEmpty(OriginalText) ? "" : OriginalText + Zwsp;
 
     /// <summary>Safe-for-display version of TranslatedText (appends zero-width space).</summary>
     public string DisplayTranslatedText => string.IsNullOrEmpty(TranslatedText) ? "" : TranslatedText + Zwsp;
 
+    /// <summary>Row background reflecting search-match state, bound by the DataGrid row style.</summary>
+    public string RowHighlight => IsCurrentSearchMatch ? "#803DDC97" : IsSearchMatch ? "#40FFD54F" : "Transparent";
+
     partial void OnTranslatedTextChanged(string value)
     {
         OnPropertyChanged(nameof(DisplayTranslatedText));
     }
+
+    partial void OnIsSearchMatchChanged(bool value) => OnPropertyChanged(nameof(RowHighlight));
+
+    partial void OnIsCurrentSearchMatchChanged(bool value) => OnPropertyChanged(nameof(RowHighlight));
 }

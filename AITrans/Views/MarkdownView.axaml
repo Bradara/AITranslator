@@ -51,6 +51,16 @@
         </TextBlock.Text>
       </TextBlock>
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+      <TextBlock Text="Търси:" VerticalAlignment="Center" />
+      <TextBox Text="{Binding SearchText}" Watermark="Търсене в оригинал/превод..." Width="200" ToolTip.Tip="Търсене в текста на оригинала и превода">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Enter" Command="{Binding FindNextCommand}" />
+        </TextBox.KeyBindings>
+      </TextBox>
+      <Button Content="◀" Command="{Binding FindPreviousCommand}" ToolTip.Tip="Предишно съвпадение" Padding="8,4" />
+      <Button Content="▶" Command="{Binding FindNextCommand}" ToolTip.Tip="Следващо съвпадение" Padding="8,4" />
+      <TextBlock Text="{Binding SearchStatusText}" VerticalAlignment="Center" MinWidth="50" Opacity="0.75" />
+      <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <TextBlock Text="{Binding CacheInfo}" VerticalAlignment="Center" FontSize="11" Opacity="0.8"
                  IsVisible="{Binding HasCache}" />
     </StackPanel>
@@ -65,10 +75,6 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,5">
           <TextBlock Text="Input (paste markdown text)" FontWeight="Bold" VerticalAlignment="Center" />
           <Button Content="📝 Parse Paragraphs" Command="{Binding ParseParagraphsCommand}" Padding="8,4" />
-          <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
-          <TextBlock Text="Web:" FontWeight="Bold" VerticalAlignment="Center" />
-          <TextBox Text="{Binding WebUrl}" Watermark="Enter web address..." Width="300" Height="32" VerticalAlignment="Center" />
-          <Button Content="🌐 Parse Web" Command="{Binding ParseFromWebCommand}" Padding="8,4" />
           <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
           <Button x:Name="SaveOriginalBtn" Content="💾 Save" Click="OnSaveOriginalClick"
                   Padding="8,4" ToolTip.Tip="Save current original text to the loaded file (if any)" />
@@ -95,6 +101,11 @@
                 SelectionMode="Extended"
                 PointerPressed="OnParagraphGridPointerPressed"
                 IsReadOnly="False">
+        <DataGrid.Styles>
+          <Style Selector="DataGridRow" x:CompileBindings="False">
+            <Setter Property="Background" Value="{Binding RowHighlight}" />
+          </Style>
+        </DataGrid.Styles>
         <DataGrid.ContextMenu>
           <ContextMenu>
             <MenuItem Header="Delete selected row" Command="{Binding DeleteSelectedCommand}" />
