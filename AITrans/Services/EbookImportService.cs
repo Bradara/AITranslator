@@ -130,6 +130,7 @@ public sealed class EbookImportService
             merged.LoadHtml($"<html><body>{combinedHtml}</body></html>");
 
             RemoveNodesByTag(merged, "script", "style");
+            PromoteNonSemanticHeadings(merged);
 
             var assetsInfo = CreateOutputPaths(outputDir, title);
             var (imageCount, skippedImages) = ProcessHtmlImages(
@@ -318,6 +319,122 @@ public sealed class EbookImportService
             foreach (var n in nodes)
                 n.Remove();
         }
+    }
+
+    /// <summary>
+    /// Many real-world EPUBs style chapter/section titles as plain &lt;div&gt;/&lt;p&gt; elements
+    /// (e.g. &lt;div class="chapter-title"&gt;) instead of semantic &lt;h1&gt;-&lt;h6&gt; tags, so
+    /// ReverseMarkdown would otherwise flatten them into indistinguishable body paragraphs. This
+    /// promotes short, single-line div/p blocks whose class/id names them as a title/heading into
+    /// real heading tags before markdown conversion, using the class/id to guess the heading level.
+    /// </summary>
+    private static void PromoteNonSemanticHeadings(HtmlDocument doc)
+    {
+        var candidates = doc.DocumentNode.SelectNodes("//div[@class or @id] | //p[@class or @id]");
+        if (candidates == null)
+            return;
+
+        var replacedOriginals = new HashSet<HtmlNode>();
+
+        foreach (var node in candidates)
+        {
+            if (HasAncestorIn(node, replacedOriginals) || HasInlineFlowAncestor(node))
+                continue;
+
+            var classAndId = (node.GetAttributeValue("class", "") + " " + node.GetAttributeValue("id", "")).Trim();
+            if (string.IsNullOrWhiteSpace(classAndId))
+                continue;
+
+            var level = DetectHeadingLevel(classAndId);
+            if (level == null || !LooksLikeHeadingCandidate(node, out var innerHtml))
+                continue;
+
+            var heading = HtmlNode.CreateNode($"<h{level}>{innerHtml}</h{level}>");
+            node.ParentNode?.ReplaceChild(heading, node);
+            replacedOriginals.Add(node);
+        }
+    }
+
+    private static readonly HashSet<string> InlineFlowTags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "p", "span", "a", "em", "strong", "i", "b", "small", "sup", "sub", "u"
+    };
+
+    private static bool HasInlineFlowAncestor(HtmlNode node)
+    {
+        for (var p = node.ParentNode; p != null && p.NodeType == HtmlNodeType.Element; p = p.ParentNode)
+        {
+            if (InlineFlowTags.Contains(p.Name))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HasAncestorIn(HtmlNode node, HashSet<HtmlNode> set)
+    {
+        for (var p = node.ParentNode; p != null; p = p.ParentNode)
+        {
+            if (set.Contains(p))
+                return true;
+        }
+        return false;
+    }
+
+    private static int? DetectHeadingLevel(string classAndId)
+    {
+        var normalized = " " + classAndId.ToLowerInvariant().Replace('_', '-') + " ";
+
+        var digitMatch = Regex.Match(normalized, @"\b(?:title|heading|hdr|head)-?([1-6])\b");
+        if (digitMatch.Success)
+            return int.Parse(digitMatch.Groups[1].Value);
+
+        if (Regex.IsMatch(normalized, @"\bsubtitle\b")) return 3;
+        if (Regex.IsMatch(normalized, @"\bsection-?title\b")) return 3;
+        if (Regex.IsMatch(normalized, @"\bchapter-?title\b|\bchapter\b")) return 2;
+        if (Regex.IsMatch(normalized, @"\bbook-?title\b")) return 1;
+        if (Regex.IsMatch(normalized, @"\btitle\b|\bheading\b|\bheadline\b")) return 2;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Accepts only short, single-line blocks: a lone wrapped &lt;p&gt;/&lt;div&gt; child is unwrapped
+    /// (the common &lt;div class="chapter-title"&gt;&lt;p&gt;Text&lt;/p&gt;&lt;/div&gt; pattern), but
+    /// anything containing tables/lists/multiple paragraphs or long text is rejected so real body
+    /// content styled with a coincidentally matching class name isn't mangled into a heading.
+    /// </summary>
+    private static bool LooksLikeHeadingCandidate(HtmlNode node, out string innerHtml)
+    {
+        innerHtml = string.Empty;
+
+        if (node.SelectNodes(".//table|.//ul|.//ol|.//blockquote|.//h1|.//h2|.//h3|.//h4|.//h5|.//h6") != null)
+            return false;
+
+        var blockChildren = node.SelectNodes("./p|./div");
+        var contentNode = node;
+        if (blockChildren != null)
+        {
+            if (blockChildren.Count > 1)
+                return false;
+
+            if (blockChildren.Count == 1)
+            {
+                var siblingText = string.Concat(node.ChildNodes
+                    .Where(c => c != blockChildren[0])
+                    .Select(c => c.InnerText)).Trim();
+                if (!string.IsNullOrWhiteSpace(siblingText))
+                    return false;
+
+                contentNode = blockChildren[0];
+            }
+        }
+
+        var plainText = Regex.Replace(WebUtility.HtmlDecode(contentNode.InnerText).Trim(), @"\s+", " ");
+        if (string.IsNullOrWhiteSpace(plainText) || plainText.Length > 150)
+            return false;
+
+        innerHtml = contentNode.InnerHtml.Trim();
+        return true;
     }
 
     private static (int ImageCount, int SkippedImages) ProcessHtmlImages(

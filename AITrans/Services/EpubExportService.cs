@@ -64,6 +64,8 @@ public sealed class EpubExportService
         int SkippedImages,
         string? TempRoot);
 
+    private sealed record HeadingInfo(int Level, string Id, string Text);
+
     public async Task<EpubExportResult> ExportAsync(
         string markdown,
         string? sourcePath,
@@ -90,16 +92,19 @@ public sealed class EpubExportService
 
         var warnings = new List<string>();
         var harvest = await HarvestImagesAsync(doc, baseDirs, warnings, ct);
+        var headings = AssignHeadingIds(doc);
 
         try
         {
             var bodyNode = doc.DocumentNode.SelectSingleNode("//body");
             var bodyContent = bodyNode?.InnerHtml ?? string.Empty;
+            var bookId = "urn:uuid:" + Guid.NewGuid();
             var contentXhtml = BuildContentXhtml(title, lang, bodyContent);
-            var navXhtml = BuildNavXhtml(title, lang);
-            var opf = BuildContentOpf(title, lang, harvest.Images);
+            var navXhtml = BuildNavXhtml(title, lang, headings);
+            var tocNcx = BuildTocNcx(title, bookId, headings);
+            var opf = BuildContentOpf(title, lang, bookId, harvest.Images);
 
-            CreateEpubArchive(outputPath, contentXhtml, navXhtml, opf, harvest.Images);
+            CreateEpubArchive(outputPath, contentXhtml, navXhtml, tocNcx, opf, harvest.Images);
         }
         finally
         {
@@ -122,11 +127,11 @@ public sealed class EpubExportService
         var safeTitle = WebUtility.HtmlEncode(title);
         return $"""
 <!DOCTYPE html>
-<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"{lang}\" xml:lang=\"{lang}\">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="{lang}" xml:lang="{lang}">
 <head>
-  <meta charset=\"utf-8\" />
+  <meta charset="utf-8" />
   <title>{safeTitle}</title>
-  <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\" />
+  <link rel="stylesheet" type="text/css" href="styles.css" />
 </head>
 <body>
 {bodyHtml}
@@ -139,12 +144,12 @@ public sealed class EpubExportService
     {
         var safeTitle = WebUtility.HtmlEncode(title);
         return $"""
-<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"{lang}\" xml:lang=\"{lang}\">
+<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="{lang}" xml:lang="{lang}">
 <head>
-  <meta charset=\"utf-8\" />
+  <meta charset="utf-8" />
   <title>{safeTitle}</title>
-  <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\" />
+  <link rel="stylesheet" type="text/css" href="styles.css" />
 </head>
 <body>
 {bodyHtml}
@@ -153,32 +158,197 @@ public sealed class EpubExportService
 """;
     }
 
-    private static string BuildNavXhtml(string title, string lang)
+    private static string BuildNavXhtml(string title, string lang, List<HeadingInfo> headings)
     {
         var safeTitle = WebUtility.HtmlEncode(title);
+        string tocList;
+        if (headings.Count == 0)
+        {
+            tocList = $"<ol>\n      <li><a href=\"content.xhtml\">{safeTitle}</a></li>\n    </ol>";
+        }
+        else
+        {
+            var index = 0;
+            tocList = BuildNavLevel(headings, ref index, headings[0].Level);
+        }
+
         return $"""
-<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" lang=\"{lang}\" xml:lang=\"{lang}\">
+<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang}" xml:lang="{lang}">
 <head>
-  <meta charset=\"utf-8\" />
+  <meta charset="utf-8" />
   <title>Table of Contents</title>
 </head>
 <body>
-  <nav epub:type=\"toc\" id=\"toc\">
+  <nav epub:type="toc" id="toc">
     <h1>Table of Contents</h1>
-    <ol>
-      <li><a href=\"content.xhtml\">{safeTitle}</a></li>
-    </ol>
+    {tocList}
   </nav>
 </body>
 </html>
 """;
     }
 
-    private static string BuildContentOpf(string title, string lang, List<ImageResource> images)
+    private static string BuildNavLevel(List<HeadingInfo> headings, ref int index, int level)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<ol>");
+        while (index < headings.Count && headings[index].Level >= level)
+        {
+            var h = headings[index];
+            sb.Append("<li><a href=\"content.xhtml#").Append(h.Id).Append("\">")
+              .Append(WebUtility.HtmlEncode(h.Text)).Append("</a>");
+            index++;
+            if (index < headings.Count && headings[index].Level > level)
+                sb.Append(BuildNavLevel(headings, ref index, headings[index].Level));
+
+            sb.Append("</li>");
+        }
+        sb.Append("</ol>");
+        return sb.ToString();
+    }
+
+    private static string BuildTocNcx(string title, string bookId, List<HeadingInfo> headings)
     {
         var safeTitle = WebUtility.HtmlEncode(title);
-        var bookId = "urn:uuid:" + Guid.NewGuid().ToString();
+        var maxDepth = headings.Count > 0 ? headings.Max(h => h.Level) : 1;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        sb.AppendLine("<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">");
+        sb.AppendLine("  <head>");
+        sb.AppendLine($"    <meta name=\"dtb:uid\" content=\"{bookId}\" />");
+        sb.AppendLine($"    <meta name=\"dtb:depth\" content=\"{maxDepth}\" />");
+        sb.AppendLine("    <meta name=\"dtb:totalPageCount\" content=\"0\" />");
+        sb.AppendLine("    <meta name=\"dtb:maxPageNumber\" content=\"0\" />");
+        sb.AppendLine("  </head>");
+        sb.AppendLine($"  <docTitle><text>{safeTitle}</text></docTitle>");
+        sb.AppendLine("  <navMap>");
+
+        if (headings.Count == 0)
+        {
+            sb.AppendLine("    <navPoint id=\"navpoint-1\" playOrder=\"1\">");
+            sb.AppendLine($"      <navLabel><text>{safeTitle}</text></navLabel>");
+            sb.AppendLine("      <content src=\"content.xhtml\" />");
+            sb.AppendLine("    </navPoint>");
+        }
+        else
+        {
+            var index = 0;
+            var playOrder = 1;
+            sb.Append(BuildNcxLevel(headings, ref index, headings[0].Level, ref playOrder, "    "));
+        }
+
+        sb.AppendLine("  </navMap>");
+        sb.AppendLine("</ncx>");
+        return sb.ToString();
+    }
+
+    private static string BuildNcxLevel(List<HeadingInfo> headings, ref int index, int level, ref int playOrder, string indent)
+    {
+        var sb = new StringBuilder();
+        while (index < headings.Count && headings[index].Level >= level)
+        {
+            var h = headings[index];
+            var navId = $"navpoint-{playOrder}";
+            sb.AppendLine($"{indent}<navPoint id=\"{navId}\" playOrder=\"{playOrder}\">");
+            sb.AppendLine($"{indent}  <navLabel><text>{WebUtility.HtmlEncode(h.Text)}</text></navLabel>");
+            sb.AppendLine($"{indent}  <content src=\"content.xhtml#{h.Id}\" />");
+            playOrder++;
+            index++;
+            if (index < headings.Count && headings[index].Level > level)
+                sb.Append(BuildNcxLevel(headings, ref index, headings[index].Level, ref playOrder, indent + "  "));
+
+            sb.AppendLine($"{indent}</navPoint>");
+        }
+        return sb.ToString();
+    }
+
+    private static List<HeadingInfo> AssignHeadingIds(HtmlDocument doc)
+    {
+        var headings = new List<HeadingInfo>();
+        var nodes = doc.DocumentNode.SelectNodes("//body//h1 | //body//h2 | //body//h3 | //body//h4 | //body//h5 | //body//h6");
+        if (nodes == null)
+            return headings;
+
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var node in nodes)
+        {
+            var level = node.Name[1] - '0';
+            var text = CollapseWhitespace(WebUtility.HtmlDecode(node.InnerText).Trim());
+            if (string.IsNullOrWhiteSpace(text))
+                continue;
+
+            var existingId = node.GetAttributeValue("id", string.Empty);
+            var id = string.IsNullOrWhiteSpace(existingId) ? Slugify(text) : existingId;
+            id = EnsureUniqueId(id, usedIds);
+            usedIds.Add(id);
+            node.SetAttributeValue("id", id);
+
+            headings.Add(new HeadingInfo(level, id, text));
+        }
+
+        return headings;
+    }
+
+    private static string CollapseWhitespace(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        var lastWasSpace = false;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!lastWasSpace)
+                    sb.Append(' ');
+                lastWasSpace = true;
+            }
+            else
+            {
+                sb.Append(ch);
+                lastWasSpace = false;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string Slugify(string text)
+    {
+        var sb = new StringBuilder();
+        var lastDash = true;
+        foreach (var ch in text.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                sb.Append(ch);
+                lastDash = false;
+            }
+            else if (!lastDash)
+            {
+                sb.Append('-');
+                lastDash = true;
+            }
+        }
+
+        var slug = sb.ToString().Trim('-');
+        return string.IsNullOrWhiteSpace(slug) ? "section" : slug;
+    }
+
+    private static string EnsureUniqueId(string baseId, HashSet<string> used)
+    {
+        if (!used.Contains(baseId))
+            return baseId;
+
+        var i = 2;
+        while (used.Contains($"{baseId}-{i}"))
+            i++;
+
+        return $"{baseId}-{i}";
+    }
+
+    private static string BuildContentOpf(string title, string lang, string bookId, List<ImageResource> images)
+    {
+        var safeTitle = WebUtility.HtmlEncode(title);
         var modified = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         var sb = new StringBuilder();
@@ -193,13 +363,14 @@ public sealed class EpubExportService
         sb.AppendLine("  <manifest>");
         sb.AppendLine("    <item id=\"content\" href=\"content.xhtml\" media-type=\"application/xhtml+xml\" />");
         sb.AppendLine("    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\" />");
+        sb.AppendLine("    <item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\" />");
         sb.AppendLine("    <item id=\"css\" href=\"styles.css\" media-type=\"text/css\" />");
 
         foreach (var img in images)
             sb.AppendLine($"    <item id=\"{img.Id}\" href=\"{img.Href}\" media-type=\"{img.MediaType}\" />");
 
         sb.AppendLine("  </manifest>");
-        sb.AppendLine("  <spine>");
+        sb.AppendLine("  <spine toc=\"ncx\">");
         sb.AppendLine("    <itemref idref=\"content\" />");
         sb.AppendLine("  </spine>");
         sb.AppendLine("</package>");
@@ -233,6 +404,7 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
         string outputPath,
         string contentXhtml,
         string navXhtml,
+        string tocNcx,
         string contentOpf,
         List<ImageResource> images)
     {
@@ -250,6 +422,7 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
         AddTextEntry(zip, "OEBPS/content.opf", contentOpf);
         AddTextEntry(zip, "OEBPS/content.xhtml", contentXhtml);
         AddTextEntry(zip, "OEBPS/nav.xhtml", navXhtml);
+        AddTextEntry(zip, "OEBPS/toc.ncx", tocNcx);
         AddTextEntry(zip, "OEBPS/styles.css", BuildDefaultCss());
 
         foreach (var img in images)
