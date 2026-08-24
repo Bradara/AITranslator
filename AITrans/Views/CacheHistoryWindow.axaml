@@ -12,17 +12,33 @@
         WindowStartupLocation="CenterOwner"
         CanResize="True">
 
-  <Grid RowDefinitions="Auto,*,Auto" Margin="16,14,16,14">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16,14,16,14">
 
     <!-- Header -->
-    <TextBlock Grid.Row="0"
-               Text="Изберете сесия за продължаване:"
-               FontWeight="SemiBold"
-               FontSize="15"
-               Margin="0,0,0,10"/>
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+      <TextBlock Grid.Column="0"
+                 Text="Изберете сесия за продължаване:"
+                 FontWeight="SemiBold"
+                 FontSize="15"
+                 VerticalAlignment="Center"/>
+      <Button Grid.Column="1"
+              Content="📥 Импорт от CSV"
+              Click="OnImportCsv"
+              ToolTip.Tip="Възстанови сесия от CSV файл"
+              Padding="10,5"/>
+    </Grid>
+
+    <!-- Status message -->
+    <TextBlock Grid.Row="1"
+               Text="{Binding StatusMessage}"
+               IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               FontSize="12"
+               Opacity="0.8"
+               Margin="0,6,0,0"
+               TextWrapping="Wrap"/>
 
     <!-- Session list -->
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
       <ItemsControl ItemsSource="{Binding Sessions}">
         <ItemsControl.ItemTemplate>
           <DataTemplate>
@@ -30,7 +46,7 @@
                     Padding="12,8"
                     BorderThickness="1"
                     CornerRadius="6">
-              <Grid ColumnDefinitions="*,Auto,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto,Auto">
 
                 <!-- Session info -->
                 <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
@@ -55,8 +71,18 @@
                         Margin="10,0,0,0"
                         VerticalAlignment="Center"/>
 
-                <!-- Delete button -->
+                <!-- Export to CSV button -->
                 <Button Grid.Column="2"
+                        Content="⬇ CSV"
+                        Tag="{Binding Key}"
+                        Click="OnExportItem"
+                        ToolTip.Tip="Експортирай този запис в CSV файл"
+                        Padding="8,5"
+                        Margin="6,0,0,0"
+                        VerticalAlignment="Center"/>
+
+                <!-- Delete button -->
+                <Button Grid.Column="3"
                         Content="🗑"
                         Tag="{Binding Key}"
                         Click="OnDeleteItem"
@@ -73,7 +99,7 @@
     </ScrollViewer>
 
     <!-- Footer -->
-    <Button Grid.Row="2"
+    <Button Grid.Row="3"
             Content="Затвори"
             Click="OnCancel"
             HorizontalAlignment="Right"

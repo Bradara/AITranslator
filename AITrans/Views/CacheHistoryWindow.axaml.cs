@@ -1,7 +1,10 @@
+using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using AITrans.Services;
 
 namespace AITrans.Views;
@@ -19,7 +22,7 @@ public class SessionRow
 /// Dialog that shows all cached sessions and lets the user pick one to restore or delete.
 /// Read <see cref="SelectedKey"/> after ShowDialog returns — null means cancelled.
 /// </summary>
-public partial class CacheHistoryWindow : Window
+public partial class CacheHistoryWindow : Window, INotifyPropertyChanged
 {
     public string? SelectedKey { get; private set; }
 
@@ -27,6 +30,20 @@ public partial class CacheHistoryWindow : Window
     private bool _isSubtitle;
 
     public ObservableCollection<SessionRow> Sessions { get; } = [];
+
+    private string? _statusMessage;
+    public string? StatusMessage
+    {
+        get => _statusMessage;
+        set
+        {
+            if (_statusMessage == value) return;
+            _statusMessage = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusMessage)));
+        }
+    }
+
+    public new event PropertyChangedEventHandler? PropertyChanged;
 
     // Parameterless constructor required by Avalonia XAML compiler
     public CacheHistoryWindow()
@@ -100,4 +117,72 @@ public partial class CacheHistoryWindow : Window
     }
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close();
+
+    // ── Export a single session to CSV ───────────────────────────────────────
+
+    private async void OnExportItem(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string key }) return;
+
+        var suggestedName = (_isSubtitle ? Path.GetFileNameWithoutExtension(key) : key) switch
+        {
+            "" or "unsaved" or "current" => "session",
+            var n => n
+        };
+
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Експортирай сесия като CSV",
+            SuggestedFileName = $"{suggestedName}.csv",
+            FileTypeChoices =
+            [
+                new FilePickerFileType("CSV файлове") { Patterns = ["*.csv"] },
+                new FilePickerFileType("Всички файлове") { Patterns = ["*"] }
+            ]
+        });
+        if (file == null) return;
+
+        try
+        {
+            if (_isSubtitle)
+                await _cacheService.ExportSubtitleSessionToCsvAsync(key, file.Path.LocalPath);
+            else
+                await _cacheService.ExportMarkdownSessionToCsvAsync(key, file.Path.LocalPath);
+            StatusMessage = "Записът беше експортиран успешно.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Грешка при експорт: {ex.Message}";
+        }
+    }
+
+    // ── Import a session from CSV ────────────────────────────────────────────
+
+    private async void OnImportCsv(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Избери CSV файл за импорт",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("CSV файлове") { Patterns = ["*.csv"] },
+                new FilePickerFileType("Всички файлове") { Patterns = ["*"] }
+            ]
+        });
+        if (files.Count == 0) return;
+
+        try
+        {
+            var key = _isSubtitle
+                ? await _cacheService.ImportSubtitleSessionFromCsvAsync(files[0].Path.LocalPath)
+                : await _cacheService.ImportMarkdownSessionFromCsvAsync(files[0].Path.LocalPath);
+            LoadSessions();
+            StatusMessage = $"Сесията беше импортирана успешно: {key}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Грешка при импорт: {ex.Message}";
+        }
+    }
 }

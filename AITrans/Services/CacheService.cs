@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using AITrans.Models;
 
@@ -564,6 +566,200 @@ public class CacheService
     {
         using var conn = Open();
         Execute(conn, "DELETE FROM word_list");
+    }
+
+    // ─── CSV Export / Import (subtitle & markdown sessions) ────────────────────
+
+    /// <summary>Exports a single subtitle session (all its entries) to a semicolon-delimited CSV file.</summary>
+    public async Task ExportSubtitleSessionToCsvAsync(string sessionKey, string csvPath)
+    {
+        var info = GetSubtitleCacheInfo(sessionKey);
+        var entries = LoadSubtitleEntries(sessionKey) ?? new List<SrtEntry>();
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"#file_path={EscapeMeta(sessionKey)}");
+        sb.AppendLine($"#language={EscapeMeta(info?.Language ?? "")}");
+        sb.AppendLine("index;start_time;end_time;original_text;translated_text");
+        foreach (var e in entries)
+        {
+            sb.Append(e.Index).Append(';');
+            sb.Append(QuoteCsvField(e.StartTime, ';')).Append(';');
+            sb.Append(QuoteCsvField(e.EndTime, ';')).Append(';');
+            sb.Append(QuoteCsvField(e.OriginalText, ';')).Append(';');
+            sb.AppendLine(QuoteCsvField(e.TranslatedText ?? "", ';'));
+        }
+
+        await File.WriteAllTextAsync(csvPath, sb.ToString(), Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// Imports a subtitle session from a CSV file produced by <see cref="ExportSubtitleSessionToCsvAsync"/>
+    /// and saves it into the cache, overwriting any existing session with the same key.
+    /// Returns the file_path key it was saved under.
+    /// </summary>
+    public async Task<string> ImportSubtitleSessionFromCsvAsync(string csvPath)
+    {
+        var lines = await File.ReadAllLinesAsync(csvPath, Encoding.UTF8);
+        var sessionKey = Path.GetFileNameWithoutExtension(csvPath);
+        var language = "";
+        var entries = new List<SrtEntry>();
+        var headerSkipped = false;
+
+        foreach (var raw in lines)
+        {
+            if (raw.Length == 0) continue;
+            if (raw.StartsWith("#file_path=")) { sessionKey = UnescapeMeta(raw["#file_path=".Length..]); continue; }
+            if (raw.StartsWith("#language=")) { language = UnescapeMeta(raw["#language=".Length..]); continue; }
+            if (!headerSkipped) { headerSkipped = true; continue; }
+
+            var parts = SplitCsvLine(raw, ';');
+            if (parts.Length < 5) continue;
+            entries.Add(new SrtEntry
+            {
+                Index = int.TryParse(parts[0], out var idx) ? idx : entries.Count,
+                StartTime = parts[1],
+                EndTime = parts[2],
+                OriginalText = parts[3],
+                TranslatedText = parts[4]
+            });
+        }
+
+        SaveSubtitleSession(sessionKey, language, entries);
+        return sessionKey;
+    }
+
+    /// <summary>Exports a single markdown session (all its paragraphs) to a semicolon-delimited CSV file.</summary>
+    public async Task ExportMarkdownSessionToCsvAsync(string sessionKey, string csvPath)
+    {
+        var result = LoadMarkdownSession(sessionKey);
+        var (inputText, paragraphs) = result ?? ("", new List<MarkdownEntry>());
+        var info = GetMarkdownCacheInfo(sessionKey);
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"#session_key={EscapeMeta(sessionKey)}");
+        sb.AppendLine($"#language={EscapeMeta(info?.Language ?? "")}");
+        sb.AppendLine($"#input_text={EscapeMeta(inputText)}");
+        sb.AppendLine("paragraph_index;original_text;translated_text");
+        foreach (var p in paragraphs)
+        {
+            sb.Append(p.Index).Append(';');
+            sb.Append(QuoteCsvField(p.OriginalText, ';')).Append(';');
+            sb.AppendLine(QuoteCsvField(p.TranslatedText ?? "", ';'));
+        }
+
+        await File.WriteAllTextAsync(csvPath, sb.ToString(), Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// Imports a markdown session from a CSV file produced by <see cref="ExportMarkdownSessionToCsvAsync"/>
+    /// and saves it into the cache, overwriting any existing session with the same key.
+    /// Returns the session_key it was saved under.
+    /// </summary>
+    public async Task<string> ImportMarkdownSessionFromCsvAsync(string csvPath)
+    {
+        var lines = await File.ReadAllLinesAsync(csvPath, Encoding.UTF8);
+        var sessionKey = Path.GetFileNameWithoutExtension(csvPath);
+        var language = "";
+        var inputText = "";
+        var paragraphs = new List<MarkdownEntry>();
+        var headerSkipped = false;
+
+        foreach (var raw in lines)
+        {
+            if (raw.Length == 0) continue;
+            if (raw.StartsWith("#session_key=")) { sessionKey = UnescapeMeta(raw["#session_key=".Length..]); continue; }
+            if (raw.StartsWith("#language=")) { language = UnescapeMeta(raw["#language=".Length..]); continue; }
+            if (raw.StartsWith("#input_text=")) { inputText = UnescapeMeta(raw["#input_text=".Length..]); continue; }
+            if (!headerSkipped) { headerSkipped = true; continue; }
+
+            var parts = SplitCsvLine(raw, ';');
+            if (parts.Length < 3) continue;
+            paragraphs.Add(new MarkdownEntry
+            {
+                Index = int.TryParse(parts[0], out var idx) ? idx : paragraphs.Count,
+                OriginalText = parts[1],
+                TranslatedText = parts[2]
+            });
+        }
+
+        SaveMarkdownSession(sessionKey, inputText, language, paragraphs);
+        return sessionKey;
+    }
+
+    /// <summary>Escapes backslashes and line breaks so a value can safely live on a single "#key=value" meta line.</summary>
+    private static string EscapeMeta(string s) =>
+        s.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n");
+
+    private static string UnescapeMeta(string s)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (s[i] == '\\' && i + 1 < s.Length)
+            {
+                i++;
+                sb.Append(s[i] switch { 'n' => '\n', 'r' => '\r', '\\' => '\\', _ => s[i] });
+            }
+            else sb.Append(s[i]);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Wraps a field in double-quotes if it contains the delimiter, quotes, or newlines.</summary>
+    private static string QuoteCsvField(string field, char delimiter)
+    {
+        if (field.Contains(delimiter) || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+            return "\"" + field.Replace("\"", "\"\"") + "\"";
+        return field;
+    }
+
+    /// <summary>Simple RFC-4180-compatible CSV line splitter for a given delimiter.</summary>
+    private static string[] SplitCsvLine(string line, char delimiter)
+    {
+        var fields = new List<string>();
+        var sb = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    if (i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        sb.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            else
+            {
+                if (c == '"')
+                    inQuotes = true;
+                else if (c == delimiter)
+                {
+                    fields.Add(sb.ToString());
+                    sb.Clear();
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+        }
+        fields.Add(sb.ToString());
+        return fields.ToArray();
     }
 
     // ─── Helper ───────────────────────────────────────────────────────────────
