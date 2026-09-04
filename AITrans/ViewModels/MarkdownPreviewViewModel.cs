@@ -24,6 +24,10 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private readonly TranslationService _translationService;
     private readonly FlashcardService _flashcardService;
     private CancellationTokenSource? _speechCts;
+    private CancellationTokenSource? _readTimerCts;
+    // Live remaining time for the running countdown; null when no read timer is active.
+    // Shared with IncreaseReadTimer/DecreaseReadTimer so the arrows can adjust it mid-read.
+    private TimeSpan? _readTimerRemaining;
     private CancellationTokenSource? _chatCts;
     private readonly Stack<string> _navHistory = new();
     private bool _loadingFile;
@@ -59,6 +63,11 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isSpeechPaused;
 
+    /// <summary>Reading time limit as "M:SS" (or plain seconds). Doubles as the live
+    /// countdown display while reading — restored to the original value once reading stops.</summary>
+    [ObservableProperty]
+    private string _readTimerInput = "5:00";
+
     [ObservableProperty]
     private bool _isExporting;
 
@@ -69,7 +78,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private string? _loadedFilePath;
 
     [ObservableProperty]
-    private string _readLanguage = "English";
+    private string _readLanguage = "Bulgarian";
 
     [ObservableProperty]
     private double _previewFontSize = 18;
@@ -453,10 +462,18 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [RelayCommand]
     private async Task ReadFromSelectionAsync()
     {
+        // GetParagraphIndexFromChar already resolves an absolute paragraph
+        // index against the full document, so no extra page offset is needed.
         var idx = GetParagraphIndexFromChar(_selectionStart);
-        // In paginated mode, add page offset to get absolute paragraph index
-        var pageOffset = CurrentPage * Math.Max(1, ParagraphsPerPage);
-        await SpeakFromIndexAsync(pageOffset + idx);
+        await SpeakFromIndexAsync(idx);
+    }
+
+    /// <summary>Starts reading from the paragraph containing the given text (matched by content,
+    /// so it works with a selection made in the rendered preview, not just the raw editor).</summary>
+    public async Task ReadFromTextAsync(string? selectedText)
+    {
+        var idx = FindParagraphIndexForText(selectedText) ?? GetParagraphIndexFromChar(_selectionStart);
+        await SpeakFromIndexAsync(idx);
     }
 
     [RelayCommand]
@@ -483,6 +500,49 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         await _speechService.ResumeAsync();
         IsSpeechPaused = false;
         StatusText = "Reading resumed.";
+    }
+
+    private static readonly TimeSpan ReadTimerStep = TimeSpan.FromSeconds(10);
+
+    [RelayCommand]
+    private void IncreaseReadTimer() => AdjustReadTimer(ReadTimerStep);
+
+    [RelayCommand]
+    private void DecreaseReadTimer() => AdjustReadTimer(-ReadTimerStep);
+
+    /// <summary>Adjusts the timer by <paramref name="delta"/>. While reading (including
+    /// paused), this live-edits the running countdown; otherwise it edits the starting value.</summary>
+    private void AdjustReadTimer(TimeSpan delta)
+    {
+        if (IsSpeaking)
+        {
+            var current = _readTimerRemaining ?? TimeSpan.Zero;
+            var updated = current + delta;
+            if (updated < TimeSpan.Zero) updated = TimeSpan.Zero;
+            ReadTimerInput = FormatTimer(updated);
+
+            if (updated <= TimeSpan.Zero)
+            {
+                _readTimerRemaining = updated;
+                StopSpeech();
+            }
+            else if (_readTimerRemaining is null && _readTimerCts is not null)
+            {
+                // No countdown was running yet (e.g. reading started with no/invalid time
+                // limit) — start one now so the new value actually takes effect.
+                _ = RunReadTimerAsync(updated, _readTimerCts.Token);
+            }
+            else
+            {
+                _readTimerRemaining = updated;
+            }
+            return;
+        }
+
+        var baseTime = TryParseTimer(ReadTimerInput, out var parsed) ? parsed : TimeSpan.Zero;
+        var next = baseTime + delta;
+        if (next < TimeSpan.Zero) next = TimeSpan.Zero;
+        ReadTimerInput = FormatTimer(next);
     }
 
     [RelayCommand]
@@ -884,20 +944,48 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private int GetParagraphIndexFromChar(int rawCharPos)
     {
         if (_paragraphSpans.Count == 0) return 0;
+        rawCharPos = Math.Clamp(rawCharPos, 0, MarkdownText.Length);
+        // _paragraphSpans/_rawParagraphs were built from a \r\n-normalized copy of
+        // MarkdownText (see BuildPlainText), so a char offset taken from the editor
+        // (which is measured against the original, possibly-CRLF text) must be
+        // re-measured against that same normalized text before comparing.
+        var normalizedPos = MarkdownText[..rawCharPos].Replace("\r\n", "\n").Length;
         var raw = MarkdownText.Replace("\r\n", "\n");
-        rawCharPos = Math.Clamp(rawCharPos, 0, raw.Length);
         // Count double-newline paragraph boundaries before the cursor position
         int count = 0;
         int idx = 0;
-        while (idx < rawCharPos)
+        while (idx < normalizedPos)
         {
             int next = raw.IndexOf("\n\n", idx, StringComparison.Ordinal);
-            if (next < 0 || next >= rawCharPos) break;
+            if (next < 0 || next >= normalizedPos) break;
             count++;
             idx = next + 2;
         }
         return Math.Min(count, _paragraphSpans.Count - 1);
     }
+
+    /// <summary>Finds the index of the paragraph whose text contains the start of
+    /// <paramref name="selectedText"/>, or null if no confident match is found.</summary>
+    private int? FindParagraphIndexForText(string? selectedText)
+    {
+        if (string.IsNullOrWhiteSpace(selectedText) || _paragraphSpans.Count == 0) return null;
+
+        var normalizedSelection = NormalizeForMatch(StripMarkdown(selectedText));
+        // Require a few characters so short/common words don't match the wrong paragraph.
+        if (normalizedSelection.Length < 4) return null;
+
+        var snippet = normalizedSelection.Length > 60 ? normalizedSelection[..60] : normalizedSelection;
+
+        for (int i = 0; i < _paragraphSpans.Count; i++)
+        {
+            var normalizedParagraph = NormalizeForMatch(_paragraphSpans[i].text);
+            if (normalizedParagraph.Contains(snippet, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return null;
+    }
+
+    private static string NormalizeForMatch(string text) => Regex.Replace(text, @"\s+", " ").Trim();
 
     private async Task SpeakFromIndexAsync(int startIdx)
     {
@@ -929,6 +1017,11 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             ? $"Reading from paragraph {startIdx + 1} of {_paragraphSpans.Count}..."
             : $"Reading {texts.Count} paragraphs...";
 
+        var originalTimerInput = ReadTimerInput;
+        _readTimerCts = new CancellationTokenSource();
+        if (TryParseTimer(originalTimerInput, out var timeLimit) && timeLimit > TimeSpan.Zero)
+            _ = RunReadTimerAsync(timeLimit, _readTimerCts.Token);
+
         try
         {
             await _speechService.SpeakParagraphsAsync(
@@ -951,8 +1044,64 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             IsSpeechPaused = false;
             _speechCts?.Dispose();
             _speechCts = null;
+            _readTimerCts?.Cancel();
+            _readTimerCts?.Dispose();
+            _readTimerCts = null;
+            ReadTimerInput = originalTimerInput;
         }
     }
+
+    /// <summary>Counts down <paramref name="duration"/> in one-second steps (frozen while
+    /// paused), updating <see cref="ReadTimerInput"/> live, and stops reading at zero.
+    /// The remaining time lives in <see cref="_readTimerRemaining"/> so IncreaseReadTimer/
+    /// DecreaseReadTimer can adjust it mid-read (including while paused).</summary>
+    private async Task RunReadTimerAsync(TimeSpan duration, CancellationToken token)
+    {
+        _readTimerRemaining = duration;
+        try
+        {
+            while (_readTimerRemaining is { } remaining && remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(1000, token);
+                if (IsSpeechPaused) continue;
+                remaining = (_readTimerRemaining ?? TimeSpan.Zero) - TimeSpan.FromSeconds(1);
+                if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+                _readTimerRemaining = remaining;
+                ReadTimerInput = FormatTimer(remaining);
+            }
+            StopSpeech();
+        }
+        catch (OperationCanceledException)
+        {
+            // Reading already ended before the timer ran out.
+        }
+        finally
+        {
+            _readTimerRemaining = null;
+        }
+    }
+
+    private static bool TryParseTimer(string? text, out TimeSpan duration)
+    {
+        duration = TimeSpan.Zero;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var parts = text.Trim().Split(':');
+        if (parts.Length == 2
+            && int.TryParse(parts[0], out var minutes) && minutes >= 0
+            && int.TryParse(parts[1], out var seconds) && seconds is >= 0 and < 60)
+        {
+            duration = new TimeSpan(0, minutes, seconds);
+            return true;
+        }
+        if (parts.Length == 1 && int.TryParse(parts[0], out var secondsOnly) && secondsOnly >= 0)
+        {
+            duration = TimeSpan.FromSeconds(secondsOnly);
+            return true;
+        }
+        return false;
+    }
+
+    private static string FormatTimer(TimeSpan duration) => $"{(int)duration.TotalMinutes}:{duration.Seconds:D2}";
 
     public int GetRawCharIndexForParagraph(int paragraphIndex)
     {

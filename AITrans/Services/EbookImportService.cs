@@ -117,6 +117,12 @@ public sealed class EbookImportService
                     OptionAutoCloseOnEnd = true
                 };
                 doc.LoadHtml(html);
+                // Image src/href in this file are relative to the file's own folder, which
+                // often differs from the OPF's folder (e.g. Text/chapter1.xhtml referencing
+                // ../Images/pic.jpg). Once all chapters are merged into one document that
+                // per-file base folder is lost, so resolve to an absolute path now, while we
+                // still know it — ProcessHtmlImages later just uses these as-is.
+                AbsolutizeImageReferences(doc, Path.GetDirectoryName(file) ?? opfDir);
                 var body = doc.DocumentNode.SelectSingleNode("//body");
                 combinedHtml.AppendLine(body?.InnerHtml ?? doc.DocumentNode.InnerHtml);
                 combinedHtml.AppendLine("<hr />");
@@ -435,6 +441,37 @@ public sealed class EbookImportService
 
         innerHtml = contentNode.InnerHtml.Trim();
         return true;
+    }
+
+    /// <summary>Rewrites img/@src and svg image/@href|@xlink:href to absolute filesystem
+    /// paths, resolved against this chapter file's own folder (not the OPF's folder — see
+    /// call site). Data URIs and http(s) URLs are left untouched.</summary>
+    private static void AbsolutizeImageReferences(HtmlDocument doc, string baseDir)
+    {
+        var imgs = doc.DocumentNode.SelectNodes("//img[@src]");
+        if (imgs != null)
+        {
+            foreach (var img in imgs)
+            {
+                var abs = ResolveRelativePath(baseDir, img.GetAttributeValue("src", ""));
+                if (abs != null)
+                    img.SetAttributeValue("src", abs);
+            }
+        }
+
+        var svgImages = doc.DocumentNode.SelectNodes("//image");
+        if (svgImages == null) return;
+
+        foreach (var svgImage in svgImages)
+        {
+            var hrefName = svgImage.Attributes.Contains("href") ? "href"
+                : svgImage.Attributes.Contains("xlink:href") ? "xlink:href" : null;
+            if (hrefName == null) continue;
+
+            var abs = ResolveRelativePath(baseDir, svgImage.GetAttributeValue(hrefName, ""));
+            if (abs != null)
+                svgImage.SetAttributeValue(hrefName, abs);
+        }
     }
 
     private static (int ImageCount, int SkippedImages) ProcessHtmlImages(

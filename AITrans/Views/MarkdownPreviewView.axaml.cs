@@ -373,6 +373,15 @@ public partial class MarkdownPreviewView : UserControl
     private void OnRawEditorPointerReleased(object? sender, PointerReleasedEventArgs e) => UpdateSelectionInVm();
     private void OnRawEditorKeyUp(object? sender, KeyEventArgs e) => UpdateSelectionInVm();
 
+    // Prefer the actual selected text (works for a rendered-preview selection, not just
+    // the raw editor's caret position) — falls back to caret position when nothing is selected.
+    private async void OnReadFromSelectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var selectedText = await GetViewerSelectedTextAsync(vm);
+        await vm.ReadFromTextAsync(selectedText);
+    }
+
     private async void OnPasteFromClipboardClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MarkdownPreviewViewModel vm) return;

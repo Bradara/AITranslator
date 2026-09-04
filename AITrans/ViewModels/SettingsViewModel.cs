@@ -15,6 +15,9 @@ public partial class SettingsViewModel : ViewModelBase
     private readonly SettingsService _settingsService;
     private readonly TranslationService _translationService;
     private readonly ThemeService _themeService;
+    // Suppresses the dropdown OnChanged auto-save handlers while the constructor populates
+    // properties from saved settings — those assignments aren't user edits.
+    private bool _loadingSettings = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOpenAi))]
@@ -436,11 +439,166 @@ public partial class SettingsViewModel : ViewModelBase
         MarkdownBatchSize = s.MarkdownBatchSize;
         DelayBetweenRequestsMs = s.DelayBetweenRequestsMs;
         Temperature = s.Temperature;
+        _loadingSettings = false;
     }
+
+    private static AiProvider ParseProvider(string label) => label switch
+    {
+        "GitHub Copilot"        => AiProvider.GitHubCopilot,
+        "OpenRouter"            => AiProvider.OpenRouter,
+        "Gemini"                => AiProvider.Gemini,
+        "DeepSeek"              => AiProvider.DeepSeek,
+        "xAI"                   => AiProvider.Groq,
+        "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
+        "Nvidia"                => AiProvider.Nvidia,
+        _ => AiProvider.OpenAI
+    };
+
+    // ──────────────────────────────────────────────────────
+    //  Dropdown auto-save — plain selection fields (no free-text typing involved)
+    //  persist immediately on change instead of waiting for the Save button.
+    // ──────────────────────────────────────────────────────
 
     partial void OnSelectedThemeChanged(string value)
     {
         _themeService.ApplyTheme(value);
+        if (_loadingSettings) return;
+        _settingsService.Settings.ThemeName = value;
+        _settingsService.Save();
+    }
+
+    partial void OnSelectedProviderChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.Provider = ParseProvider(value);
+        _settingsService.Save();
+    }
+
+    partial void OnSelectedChatProviderChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatProvider = ParseProvider(value);
+        _settingsService.Save();
+    }
+
+    partial void OnOpenAiModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.OpenAiModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnGitHubCopilotModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.GitHubCopilotModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnGitHubCopilotEndpointLabelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        var idx = Array.IndexOf(_ghEndpointLabels, value);
+        _settingsService.Settings.GitHubCopilotInferenceUrl = _ghEndpointUrls[idx >= 0 ? idx : 0];
+        _settingsService.Save();
+    }
+
+    partial void OnGeminiModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.GeminiModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnDeepSeekModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.DeepSeekModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnGroqModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.GroqModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnNvidiaModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.NvidiaModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnOpenRouterModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.OpenRouterModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatOpenAiModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatOpenAiModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatGitHubCopilotModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatGitHubCopilotModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatGeminiModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatGeminiModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatDeepSeekModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatDeepSeekModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatGroqModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatGroqModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatOpenRouterModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatOpenRouterModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnChatNvidiaModelChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.ChatNvidiaModel = value;
+        _settingsService.Save();
+    }
+
+    partial void OnDefaultLanguageChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.DefaultLanguage = value;
+        _settingsService.Save();
+    }
+
+    partial void OnSpeechSourceLanguageChanged(string value)
+    {
+        if (_loadingSettings) return;
+        _settingsService.Settings.SpeechSourceLanguage = value;
+        _settingsService.Save();
     }
 
     [RelayCommand]
@@ -657,17 +815,7 @@ public partial class SettingsViewModel : ViewModelBase
     private void Save()
     {
         var s = _settingsService.Settings;
-        s.Provider = SelectedProvider switch
-        {
-            "GitHub Copilot"     => AiProvider.GitHubCopilot,
-            "OpenRouter"         => AiProvider.OpenRouter,
-            "Gemini"             => AiProvider.Gemini,
-            "DeepSeek"           => AiProvider.DeepSeek,
-            "xAI"                => AiProvider.Groq,
-            "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
-            "Nvidia"             => AiProvider.Nvidia,
-            _ => AiProvider.OpenAI
-        };
+        s.Provider = ParseProvider(SelectedProvider);
         s.OpenAiApiKey = OpenAiApiKey;
         s.GitHubCopilotApiKey = GitHubCopilotApiKey;
         s.OpenRouterApiKey = OpenRouterApiKey;
@@ -684,17 +832,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.NvidiaModel = NvidiaModel;
         s.GroqModels = [.. GroqModels];
         s.OllamaModels = [.. OllamaModels];
-        s.ChatProvider = SelectedChatProvider switch
-        {
-            "GitHub Copilot"     => AiProvider.GitHubCopilot,
-            "OpenRouter"         => AiProvider.OpenRouter,
-            "Gemini"             => AiProvider.Gemini,
-            "DeepSeek"           => AiProvider.DeepSeek,
-            "xAI"                => AiProvider.Groq,
-            "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
-            "Nvidia"             => AiProvider.Nvidia,
-            _ => AiProvider.OpenAI
-        };
+        s.ChatProvider = ParseProvider(SelectedChatProvider);
         s.ChatOpenAiModel = ChatOpenAiModel;
         s.ChatGitHubCopilotModel = ChatGitHubCopilotModel;
         s.ChatOpenRouterModel = ChatOpenRouterModel;

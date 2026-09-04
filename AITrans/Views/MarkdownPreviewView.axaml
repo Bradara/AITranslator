@@ -40,9 +40,24 @@
               IsEnabled="{Binding !IsSpeaking}"
               ToolTip.Tip="Read the entire document aloud from the beginning" />
       <Button Content="🔊 From Selection"
-              Command="{Binding ReadFromSelectionCommand}"
+              Click="OnReadFromSelectionClick"
               IsEnabled="{Binding !IsSpeaking}"
-              ToolTip.Tip="Position cursor in the editor on the left, then click to read aloud from that point" />
+              ToolTip.Tip="Select text in the preview (or place the cursor in the editor), then click to read aloud from that paragraph" />
+      <StackPanel Orientation="Horizontal" Spacing="0">
+        <TextBox Text="{Binding ReadTimerInput}"
+                 IsReadOnly="{Binding IsSpeaking}"
+                 Width="55"
+                 HorizontalContentAlignment="Center"
+                 ToolTip.Tip="Времетраене на четенето (мин:сек) — четенето спира автоматично след изтичане на времето" />
+        <StackPanel Orientation="Vertical" Spacing="1" Margin="1,0,0,0" VerticalAlignment="Center">
+          <RepeatButton Content="▲" Command="{Binding IncreaseReadTimerCommand}"
+                        FontSize="8" Padding="0" Width="16" Height="13"
+                        ToolTip.Tip="+10 сек (работи и по време на четене/пауза)" />
+          <RepeatButton Content="▼" Command="{Binding DecreaseReadTimerCommand}"
+                        FontSize="8" Padding="0" Width="16" Height="13"
+                        ToolTip.Tip="-10 сек (работи и по време на четене/пауза)" />
+        </StackPanel>
+      </StackPanel>
       <Button Content="⏸ Pause"
               Command="{Binding PauseSpeechCommand}"
               IsVisible="{Binding IsSpeaking}"
