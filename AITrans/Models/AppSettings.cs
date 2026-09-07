@@ -11,7 +11,7 @@ public enum AiProvider
     DeepSeek,
     Groq,
     OllamaLmStudio,
-    Nvidia
+    Qwen
 }
 
 public class AppSettings
@@ -36,7 +36,7 @@ public class AppSettings
     public string GroqApiKey { get; set; } = "";
     // llama.cpp / LM Studio: no API key required unless the local server enforces one
     public string OllamaLmStudioApiKey { get; set; } = "";
-    public string NvidiaApiKey { get; set; } = "";
+    public string QwenApiKey { get; set; } = "";
 
     public string OpenAiModel { get; set; } = "gpt-4o-mini";
     public string GitHubCopilotModel { get; set; } = "gpt-4o";
@@ -47,7 +47,7 @@ public class AppSettings
     public string OllamaLmStudioModel { get; set; } = "llama3";
     // Endpoint URL for llama.cpp or LM Studio (OpenAI-compatible)
     public string OllamaLmStudioEndpoint { get; set; } = "http://127.0.0.1:8080/v1/chat/completions";
-    public string NvidiaModel { get; set; } = "meta/llama-4-maverick-17b-128e-instruct";
+    public string QwenModel { get; set; } = "qwen-plus";
     public List<string> OllamaModels { get; set; } = ["llama3"];
 
     // Chat (AI Assistant) — per-provider model selection
@@ -58,7 +58,7 @@ public class AppSettings
     public string ChatDeepSeekModel { get; set; } = "deepseek-chat";
     public string ChatGroqModel { get; set; } = "llama-3.3-70b-versatile";
     public string ChatOllamaLmStudioModel { get; set; } = "llama3";
-    public string ChatNvidiaModel { get; set; } = "meta/llama-4-maverick-17b-128e-instruct";
+    public string ChatQwenModel { get; set; } = "qwen-plus";
 
     public bool OpenRouterAutoRotate { get; set; } = true;
 
@@ -76,6 +76,14 @@ public class AppSettings
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "mixtral-8x7b-32768",
+    ];
+
+    public List<string> QwenModels { get; set; } =
+    [
+        "qwen-plus",
+        "qwen-max",
+        "qwen-turbo",
+        "qwen-long",
     ];
 
     public List<string> OpenRouterFreeModels { get; set; } =
@@ -140,7 +148,7 @@ public class AppSettings
         AiProvider.DeepSeek => DeepSeekModel,
         AiProvider.Groq => GroqModel,
         AiProvider.OllamaLmStudio => OllamaLmStudioModel,
-        AiProvider.Nvidia => NvidiaModel,
+        AiProvider.Qwen => QwenModel,
         _ => OpenAiModel
     };
 
@@ -172,7 +180,7 @@ public class AppSettings
                 AiProvider.DeepSeek       => DeepSeekApiKey,
                 AiProvider.Groq           => GroqApiKey,
                 AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
-                AiProvider.Nvidia         => NvidiaApiKey,
+                AiProvider.Qwen           => QwenApiKey,
                 _                         => OpenAiApiKey
             };
             // Local providers can work without a key — treat as configured when endpoint is set
@@ -205,7 +213,7 @@ public class AppSettings
         AiProvider.DeepSeek       => DeepSeekApiKey,
         AiProvider.Groq           => GroqApiKey,
         AiProvider.OllamaLmStudio => OllamaLmStudioApiKey,
-        AiProvider.Nvidia         => NvidiaApiKey,
+        AiProvider.Qwen           => QwenApiKey,
         _                         => OpenAiApiKey
     };
 
@@ -217,7 +225,7 @@ public class AppSettings
         AiProvider.DeepSeek       => "https://api.deepseek.com/chat/completions",
         AiProvider.Groq           => "https://api.x.ai/v1/chat/completions",
         AiProvider.OllamaLmStudio => OllamaLmStudioEndpoint,
-        AiProvider.Nvidia         => "https://integrate.api.nvidia.com/v1/chat/completions",
+        AiProvider.Qwen           => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
         _                         => "https://api.openai.com/v1/chat/completions"
     };
 
@@ -237,13 +245,13 @@ public class AppSettings
         AiProvider.DeepSeek       => ChatDeepSeekModel,
         AiProvider.Groq           => ChatGroqModel,
         AiProvider.OllamaLmStudio => ChatOllamaLmStudioModel,
-        AiProvider.Nvidia         => ChatNvidiaModel,
+        AiProvider.Qwen           => ChatQwenModel,
         _                         => ChatOpenAiModel
     };
 
     /// <summary>
     /// The model choices configured in Settings for the given provider — the user-extensible
-    /// picker list where one exists (GitHub Copilot, Groq, OpenRouter, Ollama/LM Studio),
+    /// picker list where one exists (GitHub Copilot, Groq, OpenRouter, Ollama/LM Studio, Qwen),
     /// otherwise just the single model configured for that provider.
     /// </summary>
     public List<string> GetChatModelOptions(AiProvider provider) => provider switch
@@ -252,6 +260,7 @@ public class AppSettings
         AiProvider.Groq           => GroqModels,
         AiProvider.OpenRouter     => OpenRouterFreeModels,
         AiProvider.OllamaLmStudio => OllamaModels,
+        AiProvider.Qwen           => QwenModels,
         _                         => [GetChatModel(provider)]
     };
 
@@ -263,7 +272,7 @@ public class AppSettings
         AiProvider.DeepSeek       => "DeepSeek",
         AiProvider.Groq           => "xAI",
         AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
-        AiProvider.Nvidia         => "Nvidia",
+        AiProvider.Qwen           => "Qwen",
         _                         => "OpenAI"
     };
 }

@@ -143,19 +143,34 @@
           </StackPanel>
         </StackPanel>
 
-        <!-- Nvidia NIM -->
-        <StackPanel Spacing="10" IsVisible="{Binding IsNvidia}">
-          <TextBlock Text="Nvidia NIM" FontSize="16" FontWeight="SemiBold" />
+        <!-- Qwen (DashScope) -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsQwen}">
+          <TextBlock Text="Qwen" FontSize="16" FontWeight="SemiBold" />
           <StackPanel Spacing="4">
             <TextBlock Text="API Key" />
-            <TextBox Text="{Binding NvidiaApiKey}" PasswordChar="&#x2022;" Watermark="nvapi-..." />
+            <TextBox Text="{Binding QwenApiKey}" PasswordChar="&#x2022;" Watermark="sk-..." />
           </StackPanel>
           <StackPanel Spacing="4">
             <TextBlock Text="Model" />
-            <ComboBox ItemsSource="{Binding NvidiaModels}" SelectedItem="{Binding NvidiaModel}" Width="300" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <ComboBox ItemsSource="{Binding QwenModels}" SelectedItem="{Binding QwenModel}" Width="210" />
+              <Button Content="&#x1F5D1;" Command="{Binding RemoveQwenModelCommand}"
+                      ToolTip.Tip="Remove selected model from list" Padding="8,4" />
+            </StackPanel>
           </StackPanel>
-          <TextBlock Text="Free API key at build.nvidia.com (OpenAI-compatible). Endpoint: integrate.api.nvidia.com"
-                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="&#x1F504; Fetch models" Command="{Binding FetchQwenModelsCommand}"
+                    IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="Add model manually" FontSize="12" Opacity="0.7" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBox Text="{Binding CustomQwenModel}" Watermark="e.g. qwen-max" Width="195" />
+              <Button Content="&#x2795; Add" Command="{Binding AddCustomQwenModelCommand}" Padding="8,4" />
+            </StackPanel>
+            <TextBlock Text="API key at dashscope.console.aliyun.com (OpenAI-compatible). Endpoint: dashscope-intl.aliyuncs.com."
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          </StackPanel>
         </StackPanel>
 
         <!-- OpenRouter -->
@@ -248,9 +263,9 @@
           <TextBlock Text="Endpoint-ът е споделен с настройките за превод по-горе."
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
-        <StackPanel Spacing="4" IsVisible="{Binding IsChatNvidia}">
+        <StackPanel Spacing="4" IsVisible="{Binding IsChatQwen}">
           <TextBlock Text="Model" />
-          <ComboBox ItemsSource="{Binding NvidiaModels}" SelectedItem="{Binding ChatNvidiaModel}" Width="300" />
+          <ComboBox ItemsSource="{Binding QwenModels}" SelectedItem="{Binding ChatQwenModel}" Width="300" />
         </StackPanel>
 
                 <Separator Margin="0,4" />

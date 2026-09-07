@@ -27,7 +27,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsGroq))]
     [NotifyPropertyChangedFor(nameof(IsOllama))]
-    [NotifyPropertyChangedFor(nameof(IsNvidia))]
+    [NotifyPropertyChangedFor(nameof(IsQwen))]
     private string _selectedProvider = "OpenAI";
 
     public bool IsOpenAi => SelectedProvider == "OpenAI";
@@ -37,7 +37,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsDeepSeek => SelectedProvider == "DeepSeek";
     public bool IsGroq => SelectedProvider == "xAI";
     public bool IsOllama => SelectedProvider == "llama.cpp / LM Studio";
-    public bool IsNvidia => SelectedProvider == "Nvidia";
+    public bool IsQwen => SelectedProvider == "Qwen";
 
     // ── Chat (AI Assistant) provider ──
     [ObservableProperty]
@@ -48,7 +48,7 @@ public partial class SettingsViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsChatDeepSeek))]
     [NotifyPropertyChangedFor(nameof(IsChatGroq))]
     [NotifyPropertyChangedFor(nameof(IsChatOllama))]
-    [NotifyPropertyChangedFor(nameof(IsChatNvidia))]
+    [NotifyPropertyChangedFor(nameof(IsChatQwen))]
     private string _selectedChatProvider = "OpenAI";
 
     public bool IsChatOpenAi => SelectedChatProvider == "OpenAI";
@@ -58,7 +58,7 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsChatDeepSeek => SelectedChatProvider == "DeepSeek";
     public bool IsChatGroq => SelectedChatProvider == "xAI";
     public bool IsChatOllama => SelectedChatProvider == "llama.cpp / LM Studio";
-    public bool IsChatNvidia => SelectedChatProvider == "Nvidia";
+    public bool IsChatQwen => SelectedChatProvider == "Qwen";
 
     [ObservableProperty] private string _chatOpenAiModel = "gpt-4o-mini";
     [ObservableProperty] private string _chatGitHubCopilotModel = "gpt-4o";
@@ -67,7 +67,7 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private string _chatDeepSeekModel = "deepseek-chat";
     [ObservableProperty] private string _chatGroqModel = "llama-3.3-70b-versatile";
     [ObservableProperty] private string _chatOllamaLmStudioModel = "llama3";
-    [ObservableProperty] private string _chatNvidiaModel = "meta/llama-4-maverick-17b-128e-instruct";
+    [ObservableProperty] private string _chatQwenModel = "qwen-plus";
 
     [ObservableProperty]
     private string _openAiApiKey = "";
@@ -100,7 +100,7 @@ public partial class SettingsViewModel : ViewModelBase
     private string _groqApiKey = "";
 
     [ObservableProperty]
-    private string _nvidiaApiKey = "";
+    private string _qwenApiKey = "";
 
     [ObservableProperty]
     private string _openAiModel = "gpt-4o-mini";
@@ -121,7 +121,7 @@ public partial class SettingsViewModel : ViewModelBase
     private string _groqModel = "llama-3.3-70b-versatile";
 
     [ObservableProperty]
-    private string _nvidiaModel = "meta/llama-4-maverick-17b-128e-instruct";
+    private string _qwenModel = "qwen-plus";
 
     [ObservableProperty]
     private string _ollamaLmStudioEndpoint = "http://127.0.0.1:8080/v1/chat/completions";
@@ -202,24 +202,8 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _speechSourceLanguage = "English";
 
-    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Nvidia", "llama.cpp / LM Studio"];
+    public string[] AvailableProviders { get; } = ["OpenAI", "GitHub Copilot", "OpenRouter", "Gemini", "DeepSeek", "xAI", "Qwen", "llama.cpp / LM Studio"];
 
-    public string[] NvidiaModels { get; } =
-    [
-        "meta/llama-4-maverick-17b-128e-instruct",
-        "meta/llama-4-scout-17b-16e-instruct",
-        "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-        "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "meta/llama-3.3-70b-instruct",
-        "meta/llama-3.1-8b-instruct",
-        "mistralai/mistral-large-2-instruct",
-        "google/gemma-3-27b-it",
-        "deepseek-ai/deepseek-r1",
-        "qwen/qwen3-235b-a22b",
-        "z-ai/glm-5.2",
-        "google/gemma-4-31b-it",
-        "nvidia/nemotron-3-ultra-550b-a55b"
-    ];
     public string[] OpenAiModels { get; } = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
     public string[] DeepSeekModels { get; } = ["deepseek-chat", "deepseek-reasoner"];
 
@@ -267,6 +251,87 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private ObservableCollection<string> _ollamaModels = [];
+
+    // Qwen (DashScope) models
+    private static readonly string[] _qwenDefaults =
+    [
+        "qwen-plus",
+        "qwen-max",
+        "qwen-turbo",
+        "qwen-long",
+    ];
+
+    [ObservableProperty]
+    private ObservableCollection<string> _qwenModels = [];
+
+    [ObservableProperty]
+    private string _customQwenModel = "";
+
+    [RelayCommand]
+    private void AddCustomQwenModel()
+    {
+        var m = CustomQwenModel.Trim();
+        if (string.IsNullOrEmpty(m)) return;
+        if (!QwenModels.Contains(m, StringComparer.OrdinalIgnoreCase))
+        {
+            QwenModels.Add(m);
+            _settingsService.Settings.QwenModels = [.. QwenModels];
+        }
+        QwenModel = m;
+        CustomQwenModel = "";
+    }
+
+    [RelayCommand]
+    private void RemoveQwenModel()
+    {
+        if (string.IsNullOrEmpty(QwenModel)) return;
+        var toRemove = QwenModel;
+        var idx = QwenModels.IndexOf(toRemove);
+        QwenModels.Remove(toRemove);
+        _settingsService.Settings.QwenModels = [.. QwenModels];
+        if (QwenModels.Count > 0)
+            QwenModel = QwenModels[Math.Max(0, idx - 1)];
+    }
+
+    [RelayCommand]
+    private async Task FetchQwenModelsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(QwenApiKey))
+        {
+            StatusText = "Enter Qwen API key first.";
+            return;
+        }
+
+        IsFetchingModels = true;
+        StatusText = "Fetching models from Qwen...";
+
+        try
+        {
+            var models = await _translationService.FetchQwenModelsAsync(QwenApiKey);
+
+            var merged = QwenModels
+                .Concat(models)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m)
+                .ToList();
+
+            QwenModels = new ObservableCollection<string>(merged);
+            _settingsService.Settings.QwenModels = merged;
+
+            if (merged.Count > 0 && !merged.Contains(QwenModel, StringComparer.OrdinalIgnoreCase))
+                QwenModel = merged[0];
+
+            StatusText = $"Found {models.Count} Qwen models ({merged.Count} total).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Error fetching models: {ex.Message}";
+        }
+        finally
+        {
+            IsFetchingModels = false;
+        }
+    }
 
     [RelayCommand]
     private void AddCustomGroqModel()
@@ -352,7 +417,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
             AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
-            AiProvider.Nvidia         => "Nvidia",
+            AiProvider.Qwen           => "Qwen",
             _ => "OpenAI"
         };
         SelectedChatProvider = s.ChatProvider switch
@@ -363,7 +428,7 @@ public partial class SettingsViewModel : ViewModelBase
             AiProvider.DeepSeek       => "DeepSeek",
             AiProvider.Groq           => "xAI",
             AiProvider.OllamaLmStudio => "llama.cpp / LM Studio",
-            AiProvider.Nvidia         => "Nvidia",
+            AiProvider.Qwen           => "Qwen",
             _ => "OpenAI"
         };
         OpenAiApiKey = s.OpenAiApiKey;
@@ -372,14 +437,14 @@ public partial class SettingsViewModel : ViewModelBase
         GeminiApiKey = s.GeminiApiKey;
         DeepSeekApiKey = s.DeepSeekApiKey;
         GroqApiKey = s.GroqApiKey;
-        NvidiaApiKey = s.NvidiaApiKey;
+        QwenApiKey = s.QwenApiKey;
         OpenAiModel = s.OpenAiModel;
         GitHubCopilotModel = s.GitHubCopilotModel;
         OpenRouterModel = s.OpenRouterModel;
         GeminiModel = s.GeminiModel;
         DeepSeekModel = s.DeepSeekModel;
         GroqModel = s.GroqModel;
-        NvidiaModel = s.NvidiaModel;
+        QwenModel = s.QwenModel;
         ChatOpenAiModel = s.ChatOpenAiModel;
         ChatGitHubCopilotModel = s.ChatGitHubCopilotModel;
         ChatOpenRouterModel = s.ChatOpenRouterModel;
@@ -387,7 +452,7 @@ public partial class SettingsViewModel : ViewModelBase
         ChatDeepSeekModel = s.ChatDeepSeekModel;
         ChatGroqModel = s.ChatGroqModel;
         ChatOllamaLmStudioModel = s.ChatOllamaLmStudioModel;
-        ChatNvidiaModel = s.ChatNvidiaModel;
+        ChatQwenModel = s.ChatQwenModel;
         OllamaLmStudioEndpoint = s.OllamaLmStudioEndpoint;
         OllamaLmStudioModel = s.OllamaLmStudioModel;
         OpenRouterAutoRotate = s.OpenRouterAutoRotate;
@@ -413,6 +478,14 @@ public partial class SettingsViewModel : ViewModelBase
             .ToList();
         GroqModels = new ObservableCollection<string>(mergedGroq);
         _settingsService.Settings.GroqModels = mergedGroq;
+        // Qwen models
+        var mergedQwen = s.QwenModels
+            .Concat(_qwenDefaults)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m)
+            .ToList();
+        QwenModels = new ObservableCollection<string>(mergedQwen);
+        _settingsService.Settings.QwenModels = mergedQwen;
         var mergedOllama = s.OllamaModels
             .Concat(new[] { s.OllamaLmStudioModel, s.ChatOllamaLmStudioModel, "llama3" })
             .Where(m => !string.IsNullOrWhiteSpace(m))
@@ -450,7 +523,7 @@ public partial class SettingsViewModel : ViewModelBase
         "DeepSeek"              => AiProvider.DeepSeek,
         "xAI"                   => AiProvider.Groq,
         "llama.cpp / LM Studio" => AiProvider.OllamaLmStudio,
-        "Nvidia"                => AiProvider.Nvidia,
+        "Qwen"                  => AiProvider.Qwen,
         _ => AiProvider.OpenAI
     };
 
@@ -524,10 +597,10 @@ public partial class SettingsViewModel : ViewModelBase
         _settingsService.Save();
     }
 
-    partial void OnNvidiaModelChanged(string value)
+    partial void OnQwenModelChanged(string value)
     {
         if (_loadingSettings) return;
-        _settingsService.Settings.NvidiaModel = value;
+        _settingsService.Settings.QwenModel = value;
         _settingsService.Save();
     }
 
@@ -580,10 +653,10 @@ public partial class SettingsViewModel : ViewModelBase
         _settingsService.Save();
     }
 
-    partial void OnChatNvidiaModelChanged(string value)
+    partial void OnChatQwenModelChanged(string value)
     {
         if (_loadingSettings) return;
-        _settingsService.Settings.ChatNvidiaModel = value;
+        _settingsService.Settings.ChatQwenModel = value;
         _settingsService.Save();
     }
 
@@ -822,15 +895,16 @@ public partial class SettingsViewModel : ViewModelBase
         s.GeminiApiKey = GeminiApiKey;
         s.DeepSeekApiKey = DeepSeekApiKey;
         s.GroqApiKey = GroqApiKey;
-        s.NvidiaApiKey = NvidiaApiKey;
+        s.QwenApiKey = QwenApiKey;
         s.OpenAiModel = OpenAiModel;
         s.GitHubCopilotModel = GitHubCopilotModel;
         s.OpenRouterModel = OpenRouterModel;
         s.GeminiModel = GeminiModel;
         s.DeepSeekModel = DeepSeekModel;
         s.GroqModel = GroqModel;
-        s.NvidiaModel = NvidiaModel;
+        s.QwenModel = QwenModel;
         s.GroqModels = [.. GroqModels];
+        s.QwenModels = [.. QwenModels];
         s.OllamaModels = [.. OllamaModels];
         s.ChatProvider = ParseProvider(SelectedChatProvider);
         s.ChatOpenAiModel = ChatOpenAiModel;
@@ -840,7 +914,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.ChatDeepSeekModel = ChatDeepSeekModel;
         s.ChatGroqModel = ChatGroqModel;
         s.ChatOllamaLmStudioModel = ChatOllamaLmStudioModel;
-        s.ChatNvidiaModel = ChatNvidiaModel;
+        s.ChatQwenModel = ChatQwenModel;
         s.OllamaLmStudioEndpoint = OllamaLmStudioEndpoint;
         s.OllamaLmStudioModel = OllamaLmStudioModel;
         s.OpenRouterAutoRotate = OpenRouterAutoRotate;

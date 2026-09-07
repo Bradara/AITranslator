@@ -574,6 +574,26 @@ public class TranslationService
     }
 
     /// <summary>
+    /// Fetches available models from Qwen's DashScope API (OpenAI-compatible /v1/models endpoint).
+    /// </summary>
+    public async Task<List<string>> FetchQwenModelsAsync(string apiKey, CancellationToken ct = default)
+    {
+        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get,
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        using var resp = await HttpClient.SendAsync(req, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"Qwen API error ({(int)resp.StatusCode} {resp.StatusCode}): {json}");
+        ExtractModelsFromArray(json, models);
+
+        return models.OrderBy(m => m).ToList();
+    }
+
+    /// <summary>
     /// Fetches currently available free models from OpenRouter API.
     /// </summary>
     public async Task<List<string>> FetchOpenRouterFreeModelsAsync(string apiKey, CancellationToken ct = default)
@@ -940,6 +960,12 @@ public class TranslationService
         if (maxTokens.HasValue)
             requestBody["max_tokens"] = maxTokens;
 
+        // Qwen3 models default to "thinking" mode, which burns extra (billed) reasoning
+        // tokens and — on some models — requires streaming to even work. Translation calls
+        // here are non-streaming and don't need chain-of-thought, so disable it explicitly.
+        if (settings?.Provider == AiProvider.Qwen)
+            requestBody["enable_thinking"] = false;
+
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         var isCopilotEndpoint = endpoint.Contains("api.githubcopilot.com", StringComparison.OrdinalIgnoreCase);
@@ -1157,6 +1183,10 @@ public class TranslationService
 
         if (maxTokensOverride.HasValue)
             requestBody["max_tokens"] = maxTokensOverride;
+
+        // See CallApiAsync — same reason: skip billed "thinking" tokens on Qwen3 models.
+        if (provider == AiProvider.Qwen)
+            requestBody["enable_thinking"] = false;
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
