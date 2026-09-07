@@ -51,6 +51,14 @@
         </TextBlock.Text>
       </TextBlock>
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+      <TextBlock Text="{Binding SearchStatusText}" VerticalAlignment="Center" MinWidth="50" Opacity="0.75" />
+      <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
+      <TextBlock Text="{Binding CacheInfo}" VerticalAlignment="Center" FontSize="11" Opacity="0.8"
+                 IsVisible="{Binding HasCache}" />
+    </StackPanel>
+
+    <!-- Search and Replace (translation only), third row -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,5">
       <TextBlock Text="Търси:" VerticalAlignment="Center" />
       <TextBox Text="{Binding SearchText}" Watermark="Търсене в оригинал/превод..." Width="200" ToolTip.Tip="Търсене в текста на оригинала и превода">
         <TextBox.KeyBindings>
@@ -59,10 +67,16 @@
       </TextBox>
       <Button Content="◀" Command="{Binding FindPreviousCommand}" ToolTip.Tip="Предишно съвпадение" Padding="8,4" />
       <Button Content="▶" Command="{Binding FindNextCommand}" ToolTip.Tip="Следващо съвпадение" Padding="8,4" />
-      <TextBlock Text="{Binding SearchStatusText}" VerticalAlignment="Center" MinWidth="50" Opacity="0.75" />
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
-      <TextBlock Text="{Binding CacheInfo}" VerticalAlignment="Center" FontSize="11" Opacity="0.8"
-                 IsVisible="{Binding HasCache}" />
+      <TextBlock Text="Замени с:" VerticalAlignment="Center" />
+      <TextBox Text="{Binding ReplaceText}" Watermark="Ново съдържание (само в превода)..." Width="200"
+               ToolTip.Tip="Заменя намерения текст само в колоната Превод">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Enter" Command="{Binding ReplaceCommand}" />
+        </TextBox.KeyBindings>
+      </TextBox>
+      <Button Content="Замени" Command="{Binding ReplaceCommand}" ToolTip.Tip="Замени текущото съвпадение и премини към следващото" Padding="8,4" />
+      <Button Content="Замени всички" Command="{Binding ReplaceAllCommand}" ToolTip.Tip="Замени всички съвпадения в превода" Padding="8,4" />
     </StackPanel>
 
     <!-- Status bar -->
@@ -108,6 +122,7 @@
         </DataGrid.Styles>
         <DataGrid.ContextMenu>
           <ContextMenu>
+            <MenuItem Header="➕ Вмъкни ред отдолу" Command="{Binding InsertRowBelowCommand}" />
             <MenuItem Header="Delete selected row" Command="{Binding DeleteSelectedCommand}" />
           </ContextMenu>
         </DataGrid.ContextMenu>
@@ -116,9 +131,19 @@
           <DataGridTemplateColumn Header="Original" Width="*" MinWidth="120">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
-                <TextBox Text="{Binding DisplayOriginalText}" TextWrapping="Wrap" Padding="4"
-                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                         IsHitTestVisible="False" />
+                <Border Background="Transparent">
+                  <Border.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="📋 Копирай оригинал" Click="OnCopyOriginalClick" />
+                      <Separator />
+                      <MenuItem Header="➕ Вмъкни ред отдолу" Click="OnInsertRowBelowClick" />
+                      <MenuItem Header="🗑 Изтрий избраните редове" Click="OnDeleteSelectedClick" />
+                    </ContextMenu>
+                  </Border.ContextMenu>
+                  <TextBox Text="{Binding DisplayOriginalText}" TextWrapping="Wrap" Padding="4"
+                           IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                           IsHitTestVisible="False" />
+                </Border>
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
             <DataGridTemplateColumn.CellEditingTemplate>
@@ -130,9 +155,19 @@
           <DataGridTemplateColumn Header="Translation" Width="*" MinWidth="120">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
-                <TextBox Text="{Binding DisplayTranslatedText}" TextWrapping="Wrap" Padding="4"
-                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                         IsHitTestVisible="False" />
+                <Border Background="Transparent">
+                  <Border.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="📋 Копирай превод" Click="OnCopyTranslationClick" />
+                      <Separator />
+                      <MenuItem Header="➕ Вмъкни ред отдолу" Click="OnInsertRowBelowClick" />
+                      <MenuItem Header="🗑 Изтрий избраните редове" Click="OnDeleteSelectedClick" />
+                    </ContextMenu>
+                  </Border.ContextMenu>
+                  <TextBox Text="{Binding DisplayTranslatedText}" TextWrapping="Wrap" Padding="4"
+                           IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                           IsHitTestVisible="False" />
+                </Border>
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
             <DataGridTemplateColumn.CellEditingTemplate>

@@ -78,6 +78,10 @@ public partial class MarkdownViewModel : ViewModelBase
     [ObservableProperty]
     private string _searchStatusText = "";
 
+    /// <summary>Bound to the replace box; replaces occurrences of SearchText within TranslatedText only.</summary>
+    [ObservableProperty]
+    private string _replaceText = "";
+
     private List<int> _searchMatchIndices = [];
     private int _currentSearchMatchPos = -1;
 
@@ -141,6 +145,25 @@ public partial class MarkdownViewModel : ViewModelBase
     /// (mouse wheel, scrollbar drag, keyboard) so the "active row" is tracked even without a click.</summary>
     public void NotifyActiveRow(int idx) => UpdateLastSelectedIndex(idx);
 
+    /// <summary>Text to copy for the Original column from the currently selected rows —
+    /// a single selected row copies just that cell; multiple rows are joined as separate
+    /// paragraphs (blank-line separated), same convention as GetCombinedTranslation.</summary>
+    public string GetSelectedOriginalText() => GetSelectedColumnText(p => p.OriginalText);
+
+    /// <summary>Same as <see cref="GetSelectedOriginalText"/> but for the Translation column.</summary>
+    public string GetSelectedTranslatedText() => GetSelectedColumnText(p => p.TranslatedText);
+
+    private string GetSelectedColumnText(Func<MarkdownEntry, string> selector)
+    {
+        var indices = _selectedIndices
+            .Distinct()
+            .Where(i => i >= 0 && i < Paragraphs.Count)
+            .OrderBy(i => i)
+            .ToList();
+
+        return string.Join("\n\n", indices.Select(i => selector(Paragraphs[i])));
+    }
+
     [RelayCommand]
     private void GoToRow()
     {
@@ -154,7 +177,14 @@ public partial class MarkdownViewModel : ViewModelBase
 
     partial void OnSearchTextChanged(string value) => PerformSearch();
 
-    private void PerformSearch()
+    private void PerformSearch() => RecomputeSearchMatches(keepPosition: false);
+
+    /// <summary>Re-scans Paragraphs for SearchText and refreshes highlight state.
+    /// When <paramref name="keepPosition"/> is true (used after a Replace), the current
+    /// position in the match list is preserved/clamped instead of jumping back to the first
+    /// match — since a replaced row typically drops out of the list, this naturally lands on
+    /// what was the next match.</summary>
+    private void RecomputeSearchMatches(bool keepPosition)
     {
         foreach (var p in Paragraphs)
         {
@@ -187,12 +217,27 @@ public partial class MarkdownViewModel : ViewModelBase
             return;
         }
 
-        _currentSearchMatchPos = 0;
+        _currentSearchMatchPos = keepPosition
+            ? Math.Clamp(_currentSearchMatchPos, 0, _searchMatchIndices.Count - 1)
+            : 0;
         GoToCurrentSearchMatch();
     }
 
     private static bool Contains(string? text, string term)
         => !string.IsNullOrEmpty(text) && text.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+    private static int CountOccurrences(string? text, string term)
+    {
+        if (string.IsNullOrEmpty(text) || term.Length == 0) return 0;
+        var count = 0;
+        var idx = 0;
+        while ((idx = text.IndexOf(term, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            count++;
+            idx += term.Length;
+        }
+        return count;
+    }
 
     [RelayCommand]
     private void FindNext()
@@ -219,6 +264,46 @@ public partial class MarkdownViewModel : ViewModelBase
         Paragraphs[rowIndex].IsCurrentSearchMatch = true;
         SearchStatusText = $"{_currentSearchMatchPos + 1} / {_searchMatchIndices.Count}";
         ScrollToRow = rowIndex;
+    }
+
+    /// <summary>Replaces all occurrences of SearchText in the current match row's translation,
+    /// then advances to the next match. Only touches TranslatedText — the original stays intact.</summary>
+    [RelayCommand]
+    private void Replace()
+    {
+        var term = SearchText.Trim();
+        if (term.Length == 0 || _searchMatchIndices.Count == 0 || _currentSearchMatchPos < 0) return;
+
+        var rowIndex = _searchMatchIndices[_currentSearchMatchPos];
+        var row = Paragraphs[rowIndex];
+        if (Contains(row.TranslatedText, term))
+            row.TranslatedText = row.TranslatedText.Replace(term, ReplaceText, StringComparison.OrdinalIgnoreCase);
+
+        RecomputeSearchMatches(keepPosition: true);
+    }
+
+    /// <summary>Replaces every occurrence of SearchText across all rows' translations in one go.</summary>
+    [RelayCommand]
+    private void ReplaceAll()
+    {
+        var term = SearchText.Trim();
+        if (term.Length == 0) return;
+
+        var rowsChanged = 0;
+        var occurrences = 0;
+        foreach (var row in Paragraphs)
+        {
+            var hits = CountOccurrences(row.TranslatedText, term);
+            if (hits == 0) continue;
+            row.TranslatedText = row.TranslatedText.Replace(term, ReplaceText, StringComparison.OrdinalIgnoreCase);
+            rowsChanged++;
+            occurrences += hits;
+        }
+
+        RecomputeSearchMatches(keepPosition: false);
+        StatusText = occurrences > 0
+            ? $"Replaced {occurrences} occurrence(s) in {rowsChanged} row(s)."
+            : "No matches in translation.";
     }
 
     [RelayCommand]
@@ -257,6 +342,27 @@ public partial class MarkdownViewModel : ViewModelBase
         StatusText = $"Deleted {indices.Count} paragraph(s).";
         if (Paragraphs.Count > 0)
             ScrollToRow = Math.Min(firstRemoved, Paragraphs.Count - 1);
+    }
+
+    /// <summary>Inserts a new empty row right below the last selected row (or at the end,
+    /// if nothing is selected/there are no rows yet).</summary>
+    [RelayCommand]
+    private void InsertRowBelow()
+    {
+        var insertAfter = _selectedIndices.Count > 0
+            ? Math.Clamp(_selectedIndices.Max(), -1, Paragraphs.Count - 1)
+            : Paragraphs.Count - 1;
+
+        var insertAt = insertAfter + 1;
+        Paragraphs.Insert(insertAt, new MarkdownEntry());
+
+        ReindexParagraphs();
+        SyncInputTextFromParagraphs();
+        OnPropertyChanged(nameof(HasParagraphs));
+        PerformSearch();
+
+        StatusText = "Inserted new row.";
+        ScrollToRow = insertAt;
     }
 
     public void LoadFile(string path)

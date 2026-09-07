@@ -231,6 +231,44 @@ public partial class MarkdownView : UserControl
         }
     }
 
+    // ── Per-column context menu: copy selected rows' Original/Translation ──
+    // Single selected row copies just that cell; multiple rows are joined as
+    // separate paragraphs (see MarkdownViewModel.GetSelected*Text).
+
+    private async void OnCopyOriginalClick(object? sender, RoutedEventArgs e) => await CopySelectedColumnAsync(isOriginal: true);
+
+    private async void OnCopyTranslationClick(object? sender, RoutedEventArgs e) => await CopySelectedColumnAsync(isOriginal: false);
+
+    private async Task CopySelectedColumnAsync(bool isOriginal)
+    {
+        if (DataContext is not MarkdownViewModel vm) return;
+
+        var text = isOriginal ? vm.GetSelectedOriginalText() : vm.GetSelectedTranslatedText();
+        if (string.IsNullOrEmpty(text))
+        {
+            vm.StatusText = "No rows selected.";
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+
+        await clipboard.SetTextAsync(text);
+        vm.StatusText = isOriginal ? "Original text copied to clipboard." : "Translation copied to clipboard.";
+    }
+
+    private void OnDeleteSelectedClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MarkdownViewModel vm)
+            vm.DeleteSelectedCommand.Execute(null);
+    }
+
+    private void OnInsertRowBelowClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MarkdownViewModel vm)
+            vm.InsertRowBelowCommand.Execute(null);
+    }
+
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);
