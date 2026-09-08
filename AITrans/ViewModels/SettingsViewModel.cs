@@ -192,6 +192,10 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _useGoogleTranslateForMarkdown = false;
 
+    // DeepL Free (free, unofficial endpoint — no account/API key)
+    [ObservableProperty]
+    private bool _useDeepLFreeForMarkdown = false;
+
     // Azure Speech
     [ObservableProperty]
     private string _azureSpeechApiKey = "";
@@ -503,6 +507,7 @@ public partial class SettingsViewModel : ViewModelBase
         AzureTranslatorRegion = s.AzureTranslatorRegion;
         UseAzureTranslatorForMarkdown = s.UseAzureTranslatorForMarkdown;
         UseGoogleTranslateForMarkdown = s.UseGoogleTranslateForMarkdown;
+        UseDeepLFreeForMarkdown = s.UseDeepLFreeForMarkdown;
         AzureSpeechApiKey = s.AzureSpeechApiKey;
         AzureSpeechRegion = s.AzureSpeechRegion;
         SpeechSourceLanguage = s.SpeechSourceLanguage;
@@ -929,6 +934,7 @@ public partial class SettingsViewModel : ViewModelBase
         s.AzureTranslatorRegion = AzureTranslatorRegion;
         s.UseAzureTranslatorForMarkdown = UseAzureTranslatorForMarkdown;
         s.UseGoogleTranslateForMarkdown = UseGoogleTranslateForMarkdown;
+        s.UseDeepLFreeForMarkdown = UseDeepLFreeForMarkdown;
         s.ThemeName = SelectedTheme;
         s.AzureSpeechApiKey = AzureSpeechApiKey;
         s.AzureSpeechRegion = AzureSpeechRegion;

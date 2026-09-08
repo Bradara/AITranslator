@@ -200,6 +200,142 @@ public class TranslationService
         return [.. results];
     }
 
+    // ── DeepL Free (unofficial, no account/API key) ─────────────────────────
+    // Calls the same undocumented www2.deepl.com/jsonrpc endpoint that the
+    // deepl.com/translator web page itself uses (and that tools like
+    // QTranslate rely on) — no account or API key needed. It reproduces the
+    // browser request closely, including the "id"/timestamp/whitespace quirks
+    // DeepL's anti-bot check looks for. Undocumented, unofficial, and
+    // aggressively rate-limited per IP — keep a real delay between requests
+    // (delayBetweenRequestsMs) or DeepL will start returning 429s.
+    private long _deeplFreeRequestId = GetDeeplFreeRandomId();
+
+    private static long GetDeeplFreeRandomId() =>
+        Random.Shared.NextInt64(8_300_000, 8_399_998) * 1000;
+
+    // DeepL derives the request timestamp from the number of "i" characters in
+    // the text being translated — an odd but well-documented quirk of its
+    // anti-bot check that a plain "now" timestamp fails.
+    private static long GetDeeplFreeTimestamp(string text)
+    {
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var iCount = text.Count(c => c == 'i') + 1;
+        return ts - (ts % iCount) + iCount;
+    }
+
+    /// <summary>
+    /// Translate a batch of texts using the free, unofficial DeepL web endpoint
+    /// (www2.deepl.com/jsonrpc). No API key required. Each text is translated
+    /// individually so we get paragraph-level progress callbacks.
+    /// </summary>
+    public async Task<List<string>> TranslateDeeplFreeBatchAsync(
+        List<string> texts, string targetLanguage,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
+    {
+        var langCode = ToDeepLLang(targetLanguage);
+        var results = new string[texts.Count];
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (i > 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
+
+            var translated = await TranslateDeeplFreeSingleAsync(texts[i], langCode, ct);
+            results[i] = translated;
+            onEntryTranslated?.Invoke(i, translated);
+            progress?.Report((i + 1) * 100 / texts.Count);
+        }
+
+        return [.. results];
+    }
+
+    private async Task<string> TranslateDeeplFreeSingleAsync(string text, string targetLangCode, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var id = Interlocked.Increment(ref _deeplFreeRequestId);
+        var timestamp = GetDeeplFreeTimestamp(text);
+
+        var payload = new
+        {
+            jsonrpc = "2.0",
+            method = "LMT_handle_jobs",
+            id,
+            @params = new
+            {
+                splitting = "newlines",
+                lang = new
+                {
+                    source_lang_user_selected = "auto",
+                    target_lang = targetLangCode
+                },
+                jobs = new[]
+                {
+                    new
+                    {
+                        kind = "default",
+                        sentences = new[] { new { text, id = 0, prefix = "" } },
+                        raw_en_context_before = Array.Empty<string>(),
+                        raw_en_context_after = Array.Empty<string>(),
+                        preferred_num_beams = 4
+                    }
+                },
+                priority = 1,
+                commonJobParams = new { mode = "translate" },
+                timestamp
+            }
+        };
+
+        var body = JsonSerializer.Serialize(payload);
+
+        // DeepL's anti-bot check inspects the exact whitespace around "method" in
+        // the raw request body; the real web client alternates between no space
+        // and one space before the colon based on this id-derived condition.
+        body = (id + 5) % 29 == 0 || (id + 3) % 13 == 0
+            ? body.Replace("\"method\":\"", "\"method\" : \"")
+            : body.Replace("\"method\":\"", "\"method\": \"");
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://www2.deepl.com/jsonrpc?method=LMT_handle_jobs")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+        req.Headers.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        req.Headers.Accept.ParseAdd("*/*");
+        req.Headers.Referrer = new Uri("https://www.deepl.com/");
+        req.Headers.Add("Origin", "https://www.deepl.com");
+
+        using var resp = await HttpClient.SendAsync(req, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"DeepL Free error {resp.StatusCode}: {json} (unofficial endpoint — if this happens repeatedly, increase the delay between requests)");
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("result", out var result))
+        {
+            var message = root.TryGetProperty("error", out var errEl) && errEl.TryGetProperty("message", out var m)
+                ? m.GetString()
+                : json;
+            throw new HttpRequestException(
+                $"DeepL Free error: {message} (unofficial endpoint — if this happens repeatedly, increase the delay between requests)");
+        }
+
+        return result
+            .GetProperty("translations")[0]
+            .GetProperty("beams")[0]
+            .GetProperty("sentences")[0]
+            .GetProperty("text")
+            .GetString() ?? "";
+    }
+
     // Google Translate (free, unofficial translate_a/single endpoint) language code mapping
     private static string ToGoogleTranslateLang(string language) => language.ToLowerInvariant() switch
     {
