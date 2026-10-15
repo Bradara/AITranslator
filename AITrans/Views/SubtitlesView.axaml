@@ -12,6 +12,12 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
       <Button x:Name="OpenFileBtn" Content="📂 Open SRT" Click="OnOpenFileClick" />
       <ComboBox ItemsSource="{Binding AvailableLanguages}" SelectedItem="{Binding SelectedLanguage}" Width="150" />
+      <ComboBox ItemsSource="{Binding AvailableTranslationProviders}" SelectedItem="{Binding TranslationProviderMode}"
+                Width="110" ToolTip.Tip="Доставчик за превод" />
+      <TextBlock Text="Реплики/заявка:" VerticalAlignment="Center"
+                 ToolTip.Tip="Брой субтитри, изпращани заедно в една заявка при локален доставчик (Ollama/LM Studio). По-голяма стойност дава повече контекст за кратки реплики." />
+      <NumericUpDown Value="{Binding LocalBatchSize}" Minimum="1" Maximum="20" Increment="1" Width="120"
+                     ToolTip.Tip="Брой субтитри, изпращани заедно в една заявка при локален доставчик (Ollama/LM Studio). По-голяма стойност дава повече контекст за кратки реплики." />
       <Button Content="▶ Translate All" Command="{Binding TranslateCommand}" />
       <Button Content="▶ Selected" Command="{Binding TranslateSelectedCommand}" ToolTip.Tip="Translate only selected rows" />
       <Button Content="▶ From Here" Command="{Binding TranslateFromSelectedCommand}" ToolTip.Tip="Translate from selected row to end" />
@@ -47,14 +53,61 @@
               IsReadOnly="False">
       <DataGrid.ContextMenu>
         <ContextMenu>
+          <MenuItem Header="➕ Вмъкни ред отдолу" Command="{Binding InsertRowBelowCommand}" />
           <MenuItem Header="Delete selected row" Command="{Binding DeleteSelectedCommand}" />
         </ContextMenu>
       </DataGrid.ContextMenu>
       <DataGrid.Columns>
         <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
         <DataGridTextColumn Header="Time" Binding="{Binding TimeCode}" Width="180" IsReadOnly="True" />
-        <DataGridTextColumn Header="Original" Binding="{Binding OriginalText}" Width="*" IsReadOnly="True" />
-        <DataGridTextColumn Header="Translation" Binding="{Binding TranslatedText}" Width="*" />
+        <DataGridTemplateColumn Header="Original" Width="*" MinWidth="120">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <Border Background="Transparent">
+                <Border.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="📋 Копирай оригинал" Click="OnCopyOriginalClick" />
+                    <Separator />
+                    <MenuItem Header="➕ Вмъкни ред отдолу" Click="OnInsertRowBelowClick" />
+                    <MenuItem Header="🗑 Изтрий избраните редове" Click="OnDeleteSelectedClick" />
+                  </ContextMenu>
+                </Border.ContextMenu>
+                <TextBox Text="{Binding DisplayOriginalText}" TextWrapping="Wrap" Padding="4"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         IsHitTestVisible="False" />
+              </Border>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <TextBox Text="{Binding OriginalText}" TextWrapping="Wrap" AcceptsReturn="True" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTemplateColumn Header="Translation" Width="*" MinWidth="120">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <Border Background="Transparent">
+                <Border.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="📋 Копирай превод" Click="OnCopyTranslationClick" />
+                    <Separator />
+                    <MenuItem Header="➕ Вмъкни ред отдолу" Click="OnInsertRowBelowClick" />
+                    <MenuItem Header="🗑 Изтрий избраните редове" Click="OnDeleteSelectedClick" />
+                  </ContextMenu>
+                </Border.ContextMenu>
+                <TextBox Text="{Binding DisplayTranslatedText}" TextWrapping="Wrap" Padding="4"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         IsHitTestVisible="False" />
+              </Border>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+          <DataGridTemplateColumn.CellEditingTemplate>
+            <DataTemplate>
+              <TextBox Text="{Binding TranslatedText}" TextWrapping="Wrap" AcceptsReturn="True" />
+            </DataTemplate>
+          </DataGridTemplateColumn.CellEditingTemplate>
+        </DataGridTemplateColumn>
       </DataGrid.Columns>
     </DataGrid>
   </DockPanel>

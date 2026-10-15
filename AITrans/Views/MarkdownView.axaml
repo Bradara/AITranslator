@@ -89,6 +89,8 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,5">
           <TextBlock Text="Input (paste markdown text)" FontWeight="Bold" VerticalAlignment="Center" />
           <Button Content="📝 Parse Paragraphs" Command="{Binding ParseParagraphsCommand}" Padding="8,4" />
+          <Button x:Name="YamlFrontMatterBtn" Content="🏷 YAML Заглавка" Click="OnEditYamlFrontMatterClick"
+                  Padding="8,4" ToolTip.Tip="Добави/редактирай YAML заглавка (автор, заглавие, тема, дата) към файла" />
           <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
           <Button x:Name="SaveOriginalBtn" Content="💾 Save" Click="OnSaveOriginalClick"
                   Padding="8,4" ToolTip.Tip="Save current original text to the loaded file (if any)" />

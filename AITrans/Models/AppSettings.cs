@@ -99,18 +99,22 @@ public class AppSettings
     public string DeepLApiKey { get; set; } = "";
     public bool DeepLFreeApi { get; set; } = true;
     public bool UseDeepLForMarkdown { get; set; } = false;
+    public bool UseDeepLForSubtitles { get; set; } = false;
 
     // Azure AI Translator (Foundry / Cognitive Services)
     public string AzureTranslatorApiKey { get; set; } = "";
     public string AzureTranslatorEndpoint { get; set; } = "https://api.cognitive.microsofttranslator.com";
     public string AzureTranslatorRegion { get; set; } = "";
     public bool UseAzureTranslatorForMarkdown { get; set; } = false;
+    public bool UseAzureTranslatorForSubtitles { get; set; } = false;
 
     // Google Translate (free, unofficial endpoint — no API key required)
     public bool UseGoogleTranslateForMarkdown { get; set; } = false;
+    public bool UseGoogleTranslateForSubtitles { get; set; } = false;
 
     // DeepL Free (free, unofficial endpoint — no account/API key required)
     public bool UseDeepLFreeForMarkdown { get; set; } = false;
+    public bool UseDeepLFreeForSubtitles { get; set; } = false;
 
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";
@@ -135,6 +139,10 @@ public class AppSettings
 
     public int BatchSize { get; set; } = 30;
     public int MarkdownBatchSize { get; set; } = 10;
+    // Ollama / LM Studio (local providers) translate one line per request by default since
+    // that's the more reliable prompt format for weaker local models. Grouping short subtitle
+    // replicas gives the model more surrounding context — user-configurable per subtitle tab.
+    public int SubtitlesLocalBatchSize { get; set; } = 1;
     public int DelayBetweenRequestsMs { get; set; } = 3000;
     public double Temperature { get; set; } = 1.0;
 

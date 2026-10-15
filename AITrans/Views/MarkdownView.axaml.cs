@@ -269,6 +269,23 @@ public partial class MarkdownView : UserControl
             vm.InsertRowBelowCommand.Execute(null);
     }
 
+    private async void OnEditYamlFrontMatterClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownViewModel vm) return;
+
+        var (title, author, topic, date) = vm.GetFrontMatterFields();
+        var window = new YamlFrontMatterWindow(title, author, topic, date);
+        if (TopLevel.GetTopLevel(this) is Window parent)
+            await window.ShowDialog(parent);
+        else
+            window.Show();
+
+        if (!window.Saved) return;
+
+        var dateText = window.DateValue?.ToString("yyyy-MM-dd") ?? "";
+        vm.SetFrontMatterFields(window.TitleText, window.AuthorText, window.TopicText, dateText);
+    }
+
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);

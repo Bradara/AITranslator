@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -51,6 +53,11 @@ public partial class MarkdownViewModel : ViewModelBase
 
     [ObservableProperty]
     private string? _loadedFilePath;
+
+    /// <summary>Raw YAML front matter block (including the --- delimiters), or null if the file has none.
+    /// Kept separate from InputText so it doesn't end up parsed as a translatable paragraph.</summary>
+    [ObservableProperty]
+    private string? _yamlFrontMatter;
 
     [ObservableProperty]
     private string _cacheInfo = "";
@@ -370,7 +377,9 @@ public partial class MarkdownViewModel : ViewModelBase
     public void LoadFile(string path)
     {
         var content = File.ReadAllText(path);
-        InputText = content;
+        var (frontMatter, body) = ExtractFrontMatter(content);
+        YamlFrontMatter = frontMatter;
+        InputText = body;
         LoadedFilePath = path;
         ParseParagraphs();
         RequestRestoreScroll();
@@ -379,7 +388,7 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public void SaveTranslation(string path)
     {
-        var text = GetCombinedTranslation();
+        var text = WithFrontMatter(GetCombinedTranslation());
         File.WriteAllText(path, text);
         StatusText = $"Saved to {Path.GetFileName(path)}";
         // Cache is preserved so translation progress isn't lost
@@ -392,10 +401,78 @@ public partial class MarkdownViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(text) && Paragraphs.Count > 0)
             text = string.Join("\n\n", Paragraphs.Select(p => p.OriginalText));
 
-        File.WriteAllText(path, text, System.Text.Encoding.UTF8);
+        File.WriteAllText(path, WithFrontMatter(text), System.Text.Encoding.UTF8);
         LoadedFilePath = path;
         StatusText = $"Original saved to {Path.GetFileName(path)}";
     }
+
+    private string WithFrontMatter(string body)
+        => string.IsNullOrWhiteSpace(YamlFrontMatter) ? body : YamlFrontMatter.TrimEnd() + "\n\n" + body;
+
+    private static readonly Regex FrontMatterRegex = new(@"\A---\s*\r?\n.*?\r?\n---[ \t]*\r?\n?", RegexOptions.Singleline);
+
+    private static (string? FrontMatter, string Body) ExtractFrontMatter(string content)
+    {
+        var match = FrontMatterRegex.Match(content);
+        if (!match.Success) return (null, content);
+        return (match.Value.Trim(), content[match.Length..].TrimStart('\n', '\r'));
+    }
+
+    /// <summary>Reads Title/Author/Topic/Date out of the current YAML front matter, for pre-filling the editor dialog.</summary>
+    public (string Title, string Author, string Topic, string Date) GetFrontMatterFields()
+    {
+        string title = "", author = "", topic = "", date = "";
+        if (!string.IsNullOrWhiteSpace(YamlFrontMatter))
+        {
+            foreach (var line in YamlFrontMatter.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                var idx = trimmed.IndexOf(':');
+                if (idx <= 0) continue;
+
+                var key = trimmed[..idx].Trim().ToLowerInvariant();
+                var value = trimmed[(idx + 1)..].Trim().Trim('"');
+                switch (key)
+                {
+                    case "title": title = value; break;
+                    case "author": author = value; break;
+                    case "topic": case "subject": topic = value; break;
+                    case "date": date = value; break;
+                }
+            }
+        }
+        return (title, author, topic, date);
+    }
+
+    /// <summary>Builds/replaces the YAML front matter block from the editor dialog's fields.
+    /// Clears it entirely when every field is left blank.</summary>
+    public void SetFrontMatterFields(string title, string author, string topic, string date)
+    {
+        title = title.Trim();
+        author = author.Trim();
+        topic = topic.Trim();
+        date = date.Trim();
+
+        if (title.Length == 0 && author.Length == 0 && topic.Length == 0 && date.Length == 0)
+        {
+            YamlFrontMatter = null;
+            StatusText = "YAML front matter removed.";
+            return;
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("---\n");
+        if (title.Length > 0) sb.Append($"title: \"{EscapeYamlValue(title)}\"\n");
+        if (author.Length > 0) sb.Append($"author: \"{EscapeYamlValue(author)}\"\n");
+        if (topic.Length > 0) sb.Append($"topic: \"{EscapeYamlValue(topic)}\"\n");
+        if (date.Length > 0) sb.Append($"date: {date}\n");
+        sb.Append("---");
+
+        YamlFrontMatter = sb.ToString();
+        StatusText = "YAML front matter updated.";
+    }
+
+    private static string EscapeYamlValue(string value) => value.Replace("\"", "\\\"");
 
     public async Task ImportEbookAsync(string sourcePath, string outputRoot)
     {

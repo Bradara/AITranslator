@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -141,6 +142,44 @@ public partial class SubtitlesView : UserControl
                 .ToList();
             vm.SetSelectedIndices(indices);
         }
+    }
+
+    // ── Per-column context menu: copy selected rows' Original/Translation ──
+    // Single selected row copies just that cell; multiple rows are joined as
+    // separate entries (see SubtitlesViewModel.GetSelected*Text).
+
+    private async void OnCopyOriginalClick(object? sender, RoutedEventArgs e) => await CopySelectedColumnAsync(isOriginal: true);
+
+    private async void OnCopyTranslationClick(object? sender, RoutedEventArgs e) => await CopySelectedColumnAsync(isOriginal: false);
+
+    private async Task CopySelectedColumnAsync(bool isOriginal)
+    {
+        if (DataContext is not SubtitlesViewModel vm) return;
+
+        var text = isOriginal ? vm.GetSelectedOriginalText() : vm.GetSelectedTranslatedText();
+        if (string.IsNullOrEmpty(text))
+        {
+            vm.StatusText = "No rows selected.";
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+
+        await clipboard.SetTextAsync(text);
+        vm.StatusText = isOriginal ? "Original text copied to clipboard." : "Translation copied to clipboard.";
+    }
+
+    private void OnDeleteSelectedClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SubtitlesViewModel vm)
+            vm.DeleteSelectedCommand.Execute(null);
+    }
+
+    private void OnInsertRowBelowClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SubtitlesViewModel vm)
+            vm.InsertRowBelowCommand.Execute(null);
     }
 
     private async void OnRestoreCacheClick(object? sender, RoutedEventArgs e)

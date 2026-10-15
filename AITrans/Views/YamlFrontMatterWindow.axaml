@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:AITrans.Views"
+        x:Class="AITrans.Views.YamlFrontMatterWindow"
+        x:DataType="local:YamlFrontMatterWindow"
+        x:CompileBindings="False"
+        Title="YAML Заглавка"
+        Width="420"
+        Height="320"
+        MinWidth="360"
+        MinHeight="280"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="16,14,16,14">
+
+    <TextBlock Grid.Row="0"
+               Text="Добавяне на YAML заглавка към файла"
+               FontWeight="SemiBold"
+               FontSize="15"
+               Margin="0,0,0,10" />
+
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,4">
+      <TextBlock Grid.Column="0" Text="Заглавие:" VerticalAlignment="Center" Width="90" />
+      <TextBox Grid.Column="1" Text="{Binding TitleText, Mode=TwoWay}" Watermark="Заглавие на документа" />
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="0,4">
+      <TextBlock Grid.Column="0" Text="Автор:" VerticalAlignment="Center" Width="90" />
+      <TextBox Grid.Column="1" Text="{Binding AuthorText, Mode=TwoWay}" Watermark="Име на автора" />
+    </Grid>
+
+    <Grid Grid.Row="3" ColumnDefinitions="Auto,*" Margin="0,4">
+      <TextBlock Grid.Column="0" Text="Тема:" VerticalAlignment="Center" Width="90" />
+      <TextBox Grid.Column="1" Text="{Binding TopicText, Mode=TwoWay}" Watermark="Тема/категория" />
+    </Grid>
+
+    <Grid Grid.Row="4" ColumnDefinitions="Auto,*" Margin="0,4">
+      <TextBlock Grid.Column="0" Text="Дата:" VerticalAlignment="Center" Width="90" />
+      <DatePicker Grid.Column="1" SelectedDate="{Binding DateValue, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+    </Grid>
+
+    <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,14,0,0">
+      <Button Content="Изчисти" Click="OnClear" Padding="12,6" />
+      <Button Content="Отказ" Click="OnCancel" Padding="12,6" />
+      <Button Content="Запази" Click="OnSave" Padding="12,6" IsDefault="True" />
+    </StackPanel>
+
+  </Grid>
+</Window>

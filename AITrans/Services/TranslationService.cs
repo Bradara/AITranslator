@@ -132,6 +132,71 @@ public class TranslationService
         return string.IsNullOrWhiteSpace(retryExtracted) ? retryResponse.Trim() : retryExtracted;
     }
 
+    // ── Local (Ollama/LM Studio) grouped translation ────────────────────────
+    // Very short lines (subtitle replicas) lose surrounding context when translated
+    // one at a time. Grouping several into a single numbered-list prompt gives the
+    // model that context while staying within a single "user" message — kept
+    // system-prompt-free like the single-item path so it's still treated as a local
+    // translation call (low temperature, token budget scaled to the prompt).
+
+    private static string BuildLocalTranslationBatchPrompt(List<string> texts, string targetLanguage)
+    {
+        var numbered = string.Join("\n", texts.Select((t, i) =>
+            $"[{i}] {t.Replace("\r\n", " | ").Replace("\n", " | ")}"));
+
+        return $"Translate each numbered line below to {targetLanguage}.\n" +
+               "Return ONLY the translated lines, one per line, in the exact format:\n" +
+               "[n] translated text\n" +
+               "Rules:\n" +
+               "- Keep the same [number] prefix for every line, matching the input numbering exactly.\n" +
+               "- Do not merge, skip, reorder, or add lines.\n" +
+               "- The ' | ' sequence marks a line break inside one entry — keep it as ' | ' in your translation.\n" +
+               "- Do not add explanations, notes, or extra text before or after the list.\n\n" +
+               numbered;
+    }
+
+    private static Dictionary<int, string> ParseLocalTranslationBatchResponse(string response, int count)
+    {
+        var results = new Dictionary<int, string>();
+        if (string.IsNullOrWhiteSpace(response))
+            return results;
+
+        var content = ExtractLocalTranslationContent(response);
+        foreach (var line in content.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var match = Regex.Match(line.Trim(), @"^\[(\d+)\]\s*(.+)$");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var idx) && idx >= 0 && idx < count)
+                results[idx] = match.Groups[2].Value.Trim().Replace(" | ", "\n");
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Translates several short texts in one local-model request, keyed by their position
+    /// in <paramref name="texts"/>. Any entry the model drops or mistranslates (missing from
+    /// the numbered response, or apparently untranslated) is retried individually through
+    /// <see cref="TranslateLocalTextAsync"/> so a single bad batch never loses a line.
+    /// </summary>
+    private async Task<Dictionary<int, string>> TranslateLocalTextBatchAsync(
+        List<string> texts, string targetLanguage, string apiKey, string model, string endpoint,
+        AppSettings? settings, CancellationToken ct)
+    {
+        var prompt = BuildLocalTranslationBatchPrompt(texts, targetLanguage);
+        var response = await CallApiWithRetryAsync("", prompt, apiKey, model, endpoint, settings, ct);
+        var results = ParseLocalTranslationBatchResponse(response, texts.Count);
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (results.TryGetValue(i, out var t) && !string.IsNullOrWhiteSpace(t) && !LooksUntranslated(texts[i], t))
+                continue;
+
+            results[i] = await TranslateLocalTextAsync(texts[i], targetLanguage, apiKey, model, endpoint, settings, ct);
+        }
+
+        return results;
+    }
+
     // DeepL language code mapping
     private static string ToDeepLLang(string language) => language.ToLowerInvariant() switch
     {
@@ -951,25 +1016,52 @@ public class TranslationService
         List<string> texts, string targetLanguage, string apiKey, string model, string endpoint,
         int batchSize = 30, int delayBetweenRequestsMs = 0,
         IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
-        AppSettings? settings = null, CancellationToken ct = default)
+        AppSettings? settings = null, CancellationToken ct = default, int localBatchSize = 1)
     {
         if (IsLocalTranslationProvider(settings, endpoint))
         {
             var individualResults = new string[texts.Count];
+            var chunks = texts.Select((t, i) => (Text: t, Index: i))
+                .Chunk(Math.Max(1, localBatchSize))
+                .ToList();
 
-            for (int i = 0; i < texts.Count; i++)
+            int localCompleted = 0;
+
+            for (int c = 0; c < chunks.Count; c++)
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (i > 0 && delayBetweenRequestsMs > 0)
+                if (c > 0 && delayBetweenRequestsMs > 0)
                     await Task.Delay(delayBetweenRequestsMs, ct);
 
-                var translated = await TranslateLocalTextAsync(
-                    texts[i], targetLanguage, apiKey, model, endpoint, settings, ct);
+                var chunk = chunks[c];
+                if (chunk.Length == 1)
+                {
+                    // Single-line requests keep the original, more reliable single-item
+                    // prompt/extraction (<translation> tag) rather than the numbered-list
+                    // format, since that's proven to work well with weaker local models.
+                    var only = chunk[0];
+                    var translated = await TranslateLocalTextAsync(
+                        only.Text, targetLanguage, apiKey, model, endpoint, settings, ct);
+                    individualResults[only.Index] = translated;
+                    onEntryTranslated?.Invoke(only.Index, translated);
+                }
+                else
+                {
+                    var batchTexts = chunk.Select(x => x.Text).ToList();
+                    var batchResults = await TranslateLocalTextBatchAsync(
+                        batchTexts, targetLanguage, apiKey, model, endpoint, settings, ct);
 
-                individualResults[i] = translated;
-                onEntryTranslated?.Invoke(i, translated);
-                progress?.Report((i + 1) * 100 / texts.Count);
+                    for (int j = 0; j < chunk.Length; j++)
+                    {
+                        var translated = batchResults.TryGetValue(j, out var t) ? t : "";
+                        individualResults[chunk[j].Index] = translated;
+                        onEntryTranslated?.Invoke(chunk[j].Index, translated);
+                    }
+                }
+
+                localCompleted += chunk.Length;
+                progress?.Report((int)((double)localCompleted / texts.Count * 100));
             }
 
             return [.. individualResults];

@@ -31,6 +31,15 @@ public partial class SubtitlesViewModel : ViewModelBase
     private string _selectedLanguage = "Bulgarian";
 
     [ObservableProperty]
+    private string _translationProviderMode = "С ИИ";
+
+    /// <summary>How many subtitle lines are grouped into a single request when translating with
+    /// a local provider (Ollama/LM Studio). 1 keeps the original one-line-per-request behavior;
+    /// higher values give the model surrounding context for short replicas.</summary>
+    [ObservableProperty]
+    private int _localBatchSize = 1;
+
+    [ObservableProperty]
     private string? _loadedFilePath;
 
     [ObservableProperty]
@@ -53,6 +62,8 @@ public partial class SubtitlesViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepL Free", "Azure", "Google"];
+
     public bool HasEntries => Entries.Count > 0;
 
     internal CacheService CacheService => _cacheService;
@@ -63,7 +74,35 @@ public partial class SubtitlesViewModel : ViewModelBase
         _settingsService = settingsService;
         _cacheService = cacheService;
         SelectedLanguage = settingsService.Settings.DefaultLanguage;
+        TranslationProviderMode = ResolveTranslationProviderMode(settingsService.Settings);
+        _localBatchSize = Math.Max(1, settingsService.Settings.SubtitlesLocalBatchSize);
         UpdateCacheInfo(null);
+    }
+
+    partial void OnLocalBatchSizeChanged(int value)
+    {
+        var clamped = Math.Max(1, value);
+        _settingsService.Settings.SubtitlesLocalBatchSize = clamped;
+        _settingsService.Save();
+    }
+
+    private static string ResolveTranslationProviderMode(AppSettings s) => s switch
+    {
+        { UseAzureTranslatorForSubtitles: true } => "Azure",
+        { UseDeepLForSubtitles: true } => "DeepL",
+        { UseDeepLFreeForSubtitles: true } => "DeepL Free",
+        { UseGoogleTranslateForSubtitles: true } => "Google",
+        _ => "С ИИ"
+    };
+
+    partial void OnTranslationProviderModeChanged(string value)
+    {
+        var s = _settingsService.Settings;
+        s.UseAzureTranslatorForSubtitles = value == "Azure";
+        s.UseDeepLForSubtitles = value == "DeepL";
+        s.UseDeepLFreeForSubtitles = value == "DeepL Free";
+        s.UseGoogleTranslateForSubtitles = value == "Google";
+        _settingsService.Save();
     }
 
     public void SetSelectedIndices(List<int> indices)
@@ -71,6 +110,45 @@ public partial class SubtitlesViewModel : ViewModelBase
         _selectedIndices = indices;
         if (_selectedIndices.Count > 0)
             UpdateLastSelectedIndex(_selectedIndices.Min());
+    }
+
+    /// <summary>Text to copy for the Original column from the currently selected rows —
+    /// a single selected row copies just that cell; multiple rows are joined as separate
+    /// entries (blank-line separated), same convention as the Markdown tab.</summary>
+    public string GetSelectedOriginalText() => GetSelectedColumnText(e => e.OriginalText);
+
+    /// <summary>Same as <see cref="GetSelectedOriginalText"/> but for the Translation column.</summary>
+    public string GetSelectedTranslatedText() => GetSelectedColumnText(e => e.TranslatedText);
+
+    private string GetSelectedColumnText(Func<SrtEntry, string> selector)
+    {
+        var indices = _selectedIndices
+            .Distinct()
+            .Where(i => i >= 0 && i < Entries.Count)
+            .OrderBy(i => i)
+            .ToList();
+
+        return string.Join("\n\n", indices.Select(i => selector(Entries[i])));
+    }
+
+    /// <summary>Inserts a new empty row right below the last selected row (or at the end,
+    /// if nothing is selected/there are no rows yet).</summary>
+    [RelayCommand]
+    private void InsertRowBelow()
+    {
+        var insertAfter = _selectedIndices.Count > 0
+            ? Math.Clamp(_selectedIndices.Max(), -1, Entries.Count - 1)
+            : Entries.Count - 1;
+
+        var insertAt = insertAfter + 1;
+        var timeCode = insertAfter >= 0 && insertAfter < Entries.Count ? Entries[insertAfter].EndTime : "00:00:00,000";
+        Entries.Insert(insertAt, new SrtEntry { StartTime = timeCode, EndTime = timeCode });
+
+        ReindexEntries();
+        OnPropertyChanged(nameof(HasEntries));
+
+        StatusText = "Inserted new row.";
+        ScrollToRow = insertAt;
     }
 
     [RelayCommand]
@@ -243,12 +321,6 @@ public partial class SubtitlesViewModel : ViewModelBase
         if (Entries.Count == 0 || indices.Count == 0) return;
 
         var settings = _settingsService.Settings;
-        var apiKey = settings.ActiveApiKey;
-        if (string.IsNullOrWhiteSpace(apiKey) && settings.ActiveProviderRequiresApiKey)
-        {
-            StatusText = "Error: API key not set. Go to Settings tab.";
-            return;
-        }
 
         IsTranslating = true;
         Progress = 0;
@@ -278,18 +350,76 @@ public partial class SubtitlesViewModel : ViewModelBase
                 }
             }
 
-            // Use batch indices 0..N, then map back
-            var translations = await _translationService.TranslateSubtitleBatchAsync(
-                texts, SelectedLanguage, apiKey, settings.ActiveModel, settings.ActiveEndpoint,
-                settings.BatchSize, settings.DelayBetweenRequestsMs,
-                progressReporter, OnEntryTranslated, settings, _cts.Token);
-
-            // Fill in any the callback might have missed
-            for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+            void FillMissing(List<string> translations)
             {
-                var realIdx = indexMap[i];
-                if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Entries[realIdx].TranslatedText))
-                    Entries[realIdx].TranslatedText = translations[i];
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Entries[realIdx].TranslatedText))
+                        Entries[realIdx].TranslatedText = translations[i];
+                }
+            }
+
+            if (settings.UseAzureTranslatorForSubtitles)
+            {
+                if (string.IsNullOrWhiteSpace(settings.AzureTranslatorApiKey))
+                {
+                    StatusText = "Error: Azure Translator API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                var translations = await _translationService.TranslateAzureTranslatorBatchAsync(
+                    texts, SelectedLanguage,
+                    settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint, settings.AzureTranslatorRegion,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                FillMissing(translations);
+            }
+            else if (settings.UseDeepLForSubtitles)
+            {
+                if (string.IsNullOrWhiteSpace(settings.DeepLApiKey))
+                {
+                    StatusText = "Error: DeepL API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                var translations = await _translationService.TranslateDeepLBatchAsync(
+                    texts, SelectedLanguage, settings.DeepLApiKey, settings.DeepLFreeApi,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                FillMissing(translations);
+            }
+            else if (settings.UseGoogleTranslateForSubtitles)
+            {
+                var translations = await _translationService.TranslateGoogleFreeBatchAsync(
+                    texts, SelectedLanguage,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                FillMissing(translations);
+            }
+            else if (settings.UseDeepLFreeForSubtitles)
+            {
+                var translations = await _translationService.TranslateDeeplFreeBatchAsync(
+                    texts, SelectedLanguage,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                FillMissing(translations);
+            }
+            else
+            {
+                var apiKey = settings.ActiveApiKey;
+                if (string.IsNullOrWhiteSpace(apiKey) && settings.ActiveProviderRequiresApiKey)
+                {
+                    StatusText = "Error: API key not set. Go to Settings tab.";
+                    return;
+                }
+
+                var translations = await _translationService.TranslateSubtitleBatchAsync(
+                    texts, SelectedLanguage, apiKey, settings.ActiveModel, settings.ActiveEndpoint,
+                    settings.BatchSize, settings.DelayBetweenRequestsMs,
+                    progressReporter, OnEntryTranslated, settings, _cts.Token, LocalBatchSize);
+
+                FillMissing(translations);
             }
 
             StatusText = $"Done. {translated} of {total} entries translated.";
