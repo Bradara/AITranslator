@@ -15,6 +15,7 @@ public partial class YamlFrontMatterWindow : Window
     public string AuthorText { get; set; } = "";
     public string TopicText { get; set; } = "";
     public DateTimeOffset? DateValue { get; set; }
+    public bool TocChecked { get; set; }
 
     public bool Saved { get; private set; }
 
@@ -25,12 +26,13 @@ public partial class YamlFrontMatterWindow : Window
         DataContext = this;
     }
 
-    public YamlFrontMatterWindow(string title, string author, string topic, string date) : this()
+    public YamlFrontMatterWindow(string title, string author, string topic, string date, bool toc) : this()
     {
         TitleText = title;
         AuthorText = author;
         TopicText = topic;
         DateValue = DateTimeOffset.TryParse(date, out var parsed) ? parsed : DateTimeOffset.Now;
+        TocChecked = toc;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)
@@ -45,6 +47,7 @@ public partial class YamlFrontMatterWindow : Window
         AuthorText = "";
         TopicText = "";
         DateValue = null;
+        TocChecked = false;
         Saved = true;
         Close();
     }

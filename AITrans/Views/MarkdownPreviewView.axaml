@@ -6,6 +6,7 @@
              xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia"
              mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
              x:Class="AITrans.Views.MarkdownPreviewView"
+             x:Name="Root"
              x:DataType="vm:MarkdownPreviewViewModel">
 
   <DockPanel Margin="10">
@@ -21,6 +22,10 @@
       <Button Content="← Back"
               Command="{Binding GoBackCommand}"
               ToolTip.Tip="Navigate back to the previous document" />
+      <ToggleButton Content="📑 Съдържание"
+                    IsChecked="{Binding ShowToc, Mode=TwoWay}"
+                    IsVisible="{Binding HasToc}"
+                    ToolTip.Tip="Покажи/скрий навигация по заглавия (TOC)" />
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <Button Content="A-" FontSize="14" FontWeight="Bold"
               Command="{Binding DecreaseFontSizeCommand}"
@@ -83,12 +88,56 @@
                TextWrapping="Wrap" />
 
     <!-- ── Main split layout ───────────────────────────── -->
-    <Grid ColumnDefinitions="6*, 4, 4*">
+    <Grid ColumnDefinitions="Auto, 4, 6*, 4, 4*">
+
+      <!-- ════════════════════════════════════════════════
+           TOC PANEL — clickable heading outline
+           ════════════════════════════════════════════════ -->
+      <Border Grid.Column="0"
+              Width="230"
+              IsVisible="{Binding ShowToc}"
+              Margin="0,0,0,0"
+              Padding="10,8"
+              CornerRadius="8"
+              BorderThickness="1"
+              BorderBrush="Gray"
+              Background="#14808080">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top"
+                     Text="📑 Съдържание"
+                     FontWeight="SemiBold"
+                     FontSize="13"
+                     Margin="0,0,0,8" />
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding TocItems}" x:CompileBindings="False">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Content="{Binding DisplayTitle}"
+                          FontSize="{Binding FontSize}"
+                          Command="{Binding #Root.DataContext.NavigateToHeadingCommand}"
+                          CommandParameter="{Binding}"
+                          HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Left"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          Padding="4,3"
+                          Margin="0,1"
+                          TextBlock.TextWrapping="Wrap" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter Grid.Column="1" Background="Gray" ResizeDirection="Columns"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    IsVisible="{Binding ShowToc}" />
 
       <!-- ════════════════════════════════════════════════
            LEFT PANEL — Preview / Edit toggle
            ════════════════════════════════════════════════ -->
-      <DockPanel Grid.Column="0">
+      <DockPanel Grid.Column="2">
 
         <!-- Header row -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="False">
@@ -143,9 +192,16 @@
 
           <md:MarkdownScrollViewer x:Name="MarkViewer"
                                    x:CompileBindings="False"
-                                   Margin="0,0,4,0"
+                                   Margin="12,0,4,0"
                                    Markdown="{Binding CurrentPageMarkdown}"
-                                   SelectionEnabled="True" />
+                                   SelectionEnabled="True">
+            <md:MarkdownScrollViewer.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="📋 Копирай" Click="OnCopySelectionClick" />
+                <MenuItem Header="🔊 Прочети оттук" Click="OnReadFromSelectionClick" />
+              </ContextMenu>
+            </md:MarkdownScrollViewer.ContextMenu>
+          </md:MarkdownScrollViewer>
         </DockPanel>
 
         <!-- ── Raw Markdown Editor (edit mode) ── -->
@@ -155,18 +211,19 @@
                  TextWrapping="Wrap"
                  FontFamily="Consolas,Menlo,monospace"
                  FontSize="13"
+                 Margin="12,0,0,0"
                  UndoLimit="200"
                  IsVisible="{Binding IsEditMode}" />
 
       </DockPanel>
 
-      <GridSplitter Grid.Column="1" Background="Gray" ResizeDirection="Columns"
+      <GridSplitter Grid.Column="3" Background="Gray" ResizeDirection="Columns"
                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
 
       <!-- ════════════════════════════════════════════════
            RIGHT PANEL — AI Chat
            ════════════════════════════════════════════════ -->
-      <DockPanel Grid.Column="2" Margin="4,0,0,0">
+      <DockPanel Grid.Column="4" Margin="4,0,0,0">
 
         <!-- ── Chat header ── -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4" LastChildFill="False">
@@ -258,6 +315,7 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
           <ItemsControl ItemsSource="{Binding ChatMessages}"
+                        x:CompileBindings="False"
                         Margin="0,0,0,4">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
@@ -270,10 +328,32 @@
                           CornerRadius="10,2,10,10"
                           Background="#1E88E5"
                           Padding="10,7">
-                    <SelectableTextBlock Text="{Binding Content}"
-                                         TextWrapping="Wrap"
-                                         FontSize="12"
-                                         Foreground="White" />
+                    <Border.ContextMenu>
+                      <ContextMenu>
+                        <MenuItem Header="📋 Копирай" Click="OnCopyChatSelectionClick" />
+                        <MenuItem Header="🔊 Прочети"
+                                  Command="{Binding #Root.DataContext.ReadChatMessageCommand}"
+                                  CommandParameter="{Binding}" />
+                      </ContextMenu>
+                    </Border.ContextMenu>
+                    <DockPanel>
+                      <Button DockPanel.Dock="Top"
+                              Content="🔊"
+                              FontSize="13" Width="26" Height="22" Padding="0"
+                              Margin="0,0,0,4"
+                              HorizontalAlignment="Right"
+                              HorizontalContentAlignment="Center"
+                              VerticalContentAlignment="Center"
+                              CornerRadius="5"
+                              Background="#33FFFFFF" BorderThickness="0"
+                              Command="{Binding #Root.DataContext.ReadChatMessageCommand}"
+                              CommandParameter="{Binding}"
+                              ToolTip.Tip="Прочети това съобщение" />
+                      <SelectableTextBlock Text="{Binding Content}"
+                                           TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="White" />
+                    </DockPanel>
                   </Border>
 
                   <!-- Assistant message — left-aligned, rendered as formatted Markdown -->
@@ -285,9 +365,34 @@
                     <Border.Background>
                       <SolidColorBrush Color="#33808080" />
                     </Border.Background>
-                    <md:MarkdownScrollViewer x:CompileBindings="False"
-                                             Markdown="{Binding Content}"
-                                             SelectionEnabled="True" />
+                    <DockPanel>
+                      <Button DockPanel.Dock="Top"
+                              Content="🔊"
+                              FontSize="13" Width="26" Height="22" Padding="0"
+                              Margin="0,0,0,4"
+                              HorizontalAlignment="Right"
+                              HorizontalContentAlignment="Center"
+                              VerticalContentAlignment="Center"
+                              CornerRadius="5"
+                              Background="#22808080" BorderThickness="0"
+                              Command="{Binding #Root.DataContext.ReadChatMessageCommand}"
+                              CommandParameter="{Binding}"
+                              ToolTip.Tip="Прочети това съобщение" />
+                      <!-- ContextMenu goes directly on MarkdownScrollViewer (not the Border) —
+                           its selection handling otherwise swallows the right-click before it
+                           bubbles up, same reasoning as the main preview's MarkViewer. -->
+                      <md:MarkdownScrollViewer Markdown="{Binding Content}"
+                                               SelectionEnabled="True">
+                        <md:MarkdownScrollViewer.ContextMenu>
+                          <ContextMenu>
+                            <MenuItem Header="📋 Копирай" Click="OnCopyChatSelectionClick" />
+                            <MenuItem Header="🔊 Прочети"
+                                      Command="{Binding #Root.DataContext.ReadChatMessageCommand}"
+                                      CommandParameter="{Binding}" />
+                          </ContextMenu>
+                        </md:MarkdownScrollViewer.ContextMenu>
+                      </md:MarkdownScrollViewer>
+                    </DockPanel>
                   </Border>
 
                 </Panel>

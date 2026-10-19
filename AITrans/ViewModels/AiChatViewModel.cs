@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AITrans.Models;
@@ -15,7 +16,9 @@ public partial class AiChatViewModel : ViewModelBase
 {
     private readonly TranslationService _translationService;
     private readonly SettingsService _settingsService;
+    private readonly SpeechService _speechService;
     private CancellationTokenSource? _sendCts;
+    private CancellationTokenSource? _speechCts;
 
     // How many previous messages from the current session are sent as context with each request.
     private const int ContextWindowMessages = 20;
@@ -34,18 +37,28 @@ public partial class AiChatViewModel : ViewModelBase
     [ObservableProperty] private int _scrollRequest;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasStatus))] private string _statusText = "";
 
+    [ObservableProperty] private bool _isSpeaking;
+    [ObservableProperty] private string _readLanguage = "Bulgarian";
+
+    public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
+
     public bool HasStatus => !string.IsNullOrWhiteSpace(StatusText);
 
-    public AiChatViewModel(TranslationService translationService, SettingsService settingsService)
+    public AiChatViewModel(TranslationService translationService, SettingsService settingsService, SpeechService speechService)
     {
         _translationService = translationService;
         _settingsService = settingsService;
+        _speechService = speechService;
 
         AvailableProviders = Enum.GetValues<AiProvider>()
             .Where(p => _settingsService.Settings.IsProviderConfigured(p))
             .ToList();
         if (AvailableProviders.Count == 0)
             AvailableProviders = [AiProvider.OpenAI];
+
+        var defaultLang = settingsService.Settings.DefaultLanguage;
+        if (!string.IsNullOrWhiteSpace(defaultLang) && AvailableLanguages.Contains(defaultLang))
+            ReadLanguage = defaultLang;
 
         foreach (var session in _settingsService.LoadChatSessions())
             Sessions.Add(session);
@@ -211,4 +224,66 @@ public partial class AiChatViewModel : ViewModelBase
     private void PersistSessions() => _settingsService.SaveChatSessions(Sessions.ToList());
 
     public void PersistSessionState() => PersistSessions();
+
+    // ──────────────────────────────────────────────────────
+    //  Text-to-speech — reads a single message aloud (bubble's mini 🔊 button / context menu)
+    // ──────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task ReadChatMessageAsync(ChatMessage? message)
+    {
+        if (message is null) return;
+        var text = StripMarkdown(message.Content);
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var settings = _settingsService.Settings;
+        if (string.IsNullOrWhiteSpace(settings.AzureSpeechApiKey) || string.IsNullOrWhiteSpace(settings.AzureSpeechRegion))
+        {
+            StatusText = "Azure Speech не е конфигуриран. Отиди в Настройки.";
+            return;
+        }
+
+        IsSpeaking = true;
+        _speechCts?.Dispose();
+        _speechCts = new CancellationTokenSource();
+
+        try
+        {
+            await _speechService.SpeakParagraphsAsync(
+                [text], ReadLanguage,
+                settings.AzureSpeechApiKey, settings.AzureSpeechRegion, _speechCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped — nothing to report.
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Грешка при четене: {ex.Message}";
+        }
+        finally
+        {
+            IsSpeaking = false;
+            _speechCts?.Dispose();
+            _speechCts = null;
+        }
+    }
+
+    [RelayCommand]
+    private void StopSpeech()
+    {
+        _speechCts?.Cancel();
+        _speechService.Stop();
+    }
+
+    private static string StripMarkdown(string text)
+    {
+        text = Regex.Replace(text, @"^#{1,6}\s+", "", RegexOptions.Multiline);
+        text = Regex.Replace(text, @"\*{1,3}(.+?)\*{1,3}", "$1", RegexOptions.Singleline);
+        text = Regex.Replace(text, @"_{1,3}(.+?)_{1,3}", "$1", RegexOptions.Singleline);
+        text = Regex.Replace(text, @"`(.+?)`", "$1", RegexOptions.Singleline);
+        text = Regex.Replace(text, @"\[(.+?)\]\([^)]*\)", "$1");
+        text = Regex.Replace(text, @"!\[.*?\]\([^)]*\)", "");
+        return text.Trim();
+    }
 }

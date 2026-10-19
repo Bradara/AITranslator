@@ -15,6 +15,11 @@ using AITrans.Services;
 
 namespace AITrans.ViewModels;
 
+/// <summary>Signals the view to scroll the rendered preview to a specific heading. A new
+/// instance (distinct Nonce) is created on every click so re-selecting the same heading
+/// still raises PropertyChanged.</summary>
+public record HeadingNavRequest(int Level, string Title, int ParagraphIndex, int Nonce);
+
 public partial class MarkdownPreviewViewModel : ViewModelBase
 {
     private readonly SpeechService _speechService;
@@ -31,6 +36,11 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private CancellationTokenSource? _chatCts;
     private readonly Stack<string> _navHistory = new();
     private bool _loadingFile;
+
+    /// <summary>Raw YAML front matter block (including the --- delimiters) extracted from the
+    /// loaded file, or null if it has none — re-prepended on save so it isn't lost.</summary>
+    private string? _yamlFrontMatter;
+    private int _headingNavNonce;
 
     internal CacheService CacheService => _cacheService;
 
@@ -106,6 +116,23 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private int _selectedPageNumber = 1;
 
     public string PageIndicatorText => TotalPages == 0 ? "0 / 0" : $"{CurrentPage + 1} / {TotalPages}";
+
+    // ──────────────────────────────────────────────────────
+    //  Observable properties — table of contents
+    // ──────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private ObservableCollection<TocItem> _tocItems = [];
+
+    public bool HasToc => TocItems.Count > 0;
+
+    [ObservableProperty]
+    private bool _showToc;
+
+    /// <summary>Set by NavigateToHeadingCommand; the view consumes it to scroll the rendered
+    /// preview to the matching heading once the target page has rendered.</summary>
+    [ObservableProperty]
+    private HeadingNavRequest? _headingNavRequest;
 
     // ──────────────────────────────────────────────────────
     //  Observable properties — word list
@@ -280,7 +307,10 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     /// <summary>Called from code-behind when InputTextBox text changes (paste).</summary>
     public void SetMarkdown(string markdown)
     {
-        MarkdownText = markdown;
+        var (frontMatter, body, tocFlag) = ExtractFrontMatter(markdown);
+        _yamlFrontMatter = frontMatter;
+        MarkdownText = body;
+        ShowToc = tocFlag && TocItems.Count > 0;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs.";
     }
 
@@ -330,9 +360,12 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         // Set the path before the content so GetPreviewKey() resolves to the new file
         // when MarkdownText's setter synchronously triggers RebuildPages() below.
         LoadedFilePath = path;
-        MarkdownText = File.ReadAllText(path);  // triggers OnMarkdownTextChanged → BuildPlainText()
+        var (frontMatter, body, tocFlag) = ExtractFrontMatter(File.ReadAllText(path));
+        _yamlFrontMatter = frontMatter;
+        MarkdownText = body;  // triggers OnMarkdownTextChanged → BuildPlainText()/RebuildToc()
         _loadingFile = false;
         HasUnsavedChanges = false;
+        ShowToc = tocFlag && TocItems.Count > 0;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";
         RestoreLastReadParagraph();
         LoadChatHistory(path);
@@ -435,7 +468,10 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     public void SaveToFile(string path)
     {
-        File.WriteAllText(path, MarkdownText);
+        var text = string.IsNullOrWhiteSpace(_yamlFrontMatter)
+            ? MarkdownText
+            : _yamlFrontMatter.TrimEnd() + "\n\n" + MarkdownText;
+        File.WriteAllText(path, text);
         LoadedFilePath = path;
         RegisterRecentFile(path);
         HasUnsavedChanges = false;
@@ -476,6 +512,52 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         var idx = FindParagraphIndexForText(selectedText) ?? GetParagraphIndexFromChar(_selectionStart);
         await SpeakFromIndexAsync(idx);
+    }
+
+    /// <summary>Reads a single chat message aloud (bound to the bubble's mini 🔊 button and
+    /// its context menu). Uses ChatLanguage rather than ReadLanguage since chat replies aren't
+    /// necessarily in the document's language.</summary>
+    [RelayCommand]
+    private async Task ReadChatMessageAsync(ChatMessage? message)
+    {
+        if (message is null) return;
+        var text = StripMarkdown(message.Content);
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var settings = _settingsService.Settings;
+        if (string.IsNullOrWhiteSpace(settings.AzureSpeechApiKey) || string.IsNullOrWhiteSpace(settings.AzureSpeechRegion))
+        {
+            StatusText = "Azure Speech not configured. Go to Settings tab.";
+            return;
+        }
+
+        IsSpeaking = true;
+        IsSpeechPaused = false;
+        _speechCts = new CancellationTokenSource();
+        StatusText = "Reading message...";
+
+        try
+        {
+            await _speechService.SpeakParagraphsAsync(
+                [text], ChatLanguage,
+                settings.AzureSpeechApiKey, settings.AzureSpeechRegion, _speechCts.Token);
+            StatusText = "Done reading.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Reading stopped.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Speech error: {ex.Message}";
+        }
+        finally
+        {
+            IsSpeaking = false;
+            IsSpeechPaused = false;
+            _speechCts?.Dispose();
+            _speechCts = null;
+        }
     }
 
     [RelayCommand]
@@ -591,6 +673,25 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     private void LastPage()
     {
         if (TotalPages > 0) CurrentPage = TotalPages - 1;
+    }
+
+    // ──────────────────────────────────────────────────────
+    //  Table of contents commands
+    // ──────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private void NavigateToHeading(TocItem? item)
+    {
+        if (item is null) return;
+
+        IsEditMode = false;
+
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        var targetPage = Math.Clamp(item.ParagraphIndex / perPage, 0, Math.Max(0, TotalPages - 1));
+        if (targetPage != CurrentPage)
+            CurrentPage = targetPage;
+
+        HeadingNavRequest = new HeadingNavRequest(item.Level, item.Title, item.ParagraphIndex, ++_headingNavNonce);
     }
 
     // ──────────────────────────────────────────────────────
@@ -856,6 +957,69 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
             sb.AppendLine();
         }
         PlainText = sb.ToString();
+
+        RebuildToc();
+    }
+
+    private static readonly Regex HeadingLineRegex = new(@"^(#{1,6})\s+(.+?)\s*#*$");
+
+    /// <summary>Scans the raw paragraphs for standalone heading lines (standard markdown: a
+    /// heading is its own blank-line-separated paragraph) and builds the clickable TOC list.</summary>
+    private void RebuildToc()
+    {
+        var items = new List<TocItem>();
+        for (int i = 0; i < _rawParagraphs.Count; i++)
+        {
+            var firstLine = _rawParagraphs[i].Split('\n')[0].TrimEnd();
+            var match = HeadingLineRegex.Match(firstLine);
+            if (!match.Success) continue;
+
+            var title = StripInlineMarkdown(match.Groups[2].Value.Trim());
+            if (title.Length == 0) continue;
+
+            items.Add(new TocItem(match.Groups[1].Value.Length, title, i));
+        }
+
+        TocItems = new ObservableCollection<TocItem>(items);
+        OnPropertyChanged(nameof(HasToc));
+        if (TocItems.Count == 0)
+            ShowToc = false;
+    }
+
+    private static string StripInlineMarkdown(string text)
+    {
+        text = Regex.Replace(text, @"\*{1,3}(.+?)\*{1,3}", "$1");
+        text = Regex.Replace(text, @"_{1,3}(.+?)_{1,3}", "$1");
+        text = Regex.Replace(text, @"`(.+?)`", "$1");
+        text = Regex.Replace(text, @"\[(.+?)\]\([^)]*\)", "$1");
+        return text.Trim();
+    }
+
+    private static readonly Regex FrontMatterRegex = new(@"\A---\s*\r?\n.*?\r?\n---[ \t]*\r?\n?", RegexOptions.Singleline);
+
+    /// <summary>Pulls a leading YAML front matter block off the content, returning the body
+    /// without it and whether its "toc" field is truthy (controls whether the TOC panel
+    /// auto-opens for this file).</summary>
+    private static (string? FrontMatter, string Body, bool Toc) ExtractFrontMatter(string content)
+    {
+        var match = FrontMatterRegex.Match(content);
+        if (!match.Success) return (null, content, false);
+
+        var frontMatter = match.Value.Trim();
+        var body = content[match.Length..].TrimStart('\n', '\r');
+
+        var toc = false;
+        foreach (var line in frontMatter.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            var idx = trimmed.IndexOf(':');
+            if (idx <= 0) continue;
+            if (!trimmed[..idx].Trim().Equals("toc", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var value = trimmed[(idx + 1)..].Trim().Trim('"').ToLowerInvariant();
+            toc = value is "true" or "1" or "yes";
+        }
+        return (frontMatter, body, toc);
     }
 
     private void RebuildPages()

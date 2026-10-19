@@ -89,8 +89,13 @@ public partial class MarkdownViewModel : ViewModelBase
     [ObservableProperty]
     private string _replaceText = "";
 
+    /// <summary>Toggled by the regex button; when true, SearchText is interpreted as a .NET regular expression.</summary>
+    [ObservableProperty]
+    private bool _isRegexSearch;
+
     private List<int> _searchMatchIndices = [];
     private int _currentSearchMatchPos = -1;
+    private Regex? _compiledSearchRegex;
 
     private List<int> _selectedIndices = [];
     private int _lastTranslatedIndex = -1;
@@ -186,6 +191,8 @@ public partial class MarkdownViewModel : ViewModelBase
 
     partial void OnSearchTextChanged(string value) => PerformSearch();
 
+    partial void OnIsRegexSearchChanged(bool value) => PerformSearch();
+
     private void PerformSearch() => RecomputeSearchMatches(keepPosition: false);
 
     /// <summary>Re-scans Paragraphs for SearchText and refreshes highlight state.
@@ -206,8 +213,28 @@ public partial class MarkdownViewModel : ViewModelBase
         {
             _searchMatchIndices = [];
             _currentSearchMatchPos = -1;
+            _compiledSearchRegex = null;
             SearchStatusText = "";
             return;
+        }
+
+        if (IsRegexSearch)
+        {
+            try
+            {
+                _compiledSearchRegex = new Regex(term, RegexOptions.IgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                _searchMatchIndices = [];
+                _currentSearchMatchPos = -1;
+                SearchStatusText = "Invalid regex";
+                return;
+            }
+        }
+        else
+        {
+            _compiledSearchRegex = null;
         }
 
         _searchMatchIndices = Paragraphs
@@ -232,12 +259,21 @@ public partial class MarkdownViewModel : ViewModelBase
         GoToCurrentSearchMatch();
     }
 
-    private static bool Contains(string? text, string term)
-        => !string.IsNullOrEmpty(text) && text.Contains(term, StringComparison.OrdinalIgnoreCase);
+    private bool Contains(string? text, string term)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return _compiledSearchRegex is { } regex
+            ? regex.IsMatch(text)
+            : text.Contains(term, StringComparison.OrdinalIgnoreCase);
+    }
 
-    private static int CountOccurrences(string? text, string term)
+    private int CountOccurrences(string? text, string term)
     {
         if (string.IsNullOrEmpty(text) || term.Length == 0) return 0;
+
+        if (_compiledSearchRegex is { } regex)
+            return regex.Matches(text).Count;
+
         var count = 0;
         var idx = 0;
         while ((idx = text.IndexOf(term, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
@@ -247,6 +283,13 @@ public partial class MarkdownViewModel : ViewModelBase
         }
         return count;
     }
+
+    /// <summary>Replaces matches of SearchText within <paramref name="text"/> with ReplaceText,
+    /// using regex replacement (so $1 etc. backreferences work) when regex mode is on.</summary>
+    private string ReplaceMatches(string text, string term)
+        => _compiledSearchRegex is { } regex
+            ? regex.Replace(text, ReplaceText)
+            : text.Replace(term, ReplaceText, StringComparison.OrdinalIgnoreCase);
 
     [RelayCommand]
     private void FindNext()
@@ -282,11 +325,12 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         var term = SearchText.Trim();
         if (term.Length == 0 || _searchMatchIndices.Count == 0 || _currentSearchMatchPos < 0) return;
+        if (IsRegexSearch && _compiledSearchRegex is null) return;
 
         var rowIndex = _searchMatchIndices[_currentSearchMatchPos];
         var row = Paragraphs[rowIndex];
         if (Contains(row.TranslatedText, term))
-            row.TranslatedText = row.TranslatedText.Replace(term, ReplaceText, StringComparison.OrdinalIgnoreCase);
+            row.TranslatedText = ReplaceMatches(row.TranslatedText, term);
 
         RecomputeSearchMatches(keepPosition: true);
     }
@@ -297,6 +341,11 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         var term = SearchText.Trim();
         if (term.Length == 0) return;
+        if (IsRegexSearch && _compiledSearchRegex is null)
+        {
+            StatusText = "Invalid regex";
+            return;
+        }
 
         var rowsChanged = 0;
         var occurrences = 0;
@@ -304,7 +353,7 @@ public partial class MarkdownViewModel : ViewModelBase
         {
             var hits = CountOccurrences(row.TranslatedText, term);
             if (hits == 0) continue;
-            row.TranslatedText = row.TranslatedText.Replace(term, ReplaceText, StringComparison.OrdinalIgnoreCase);
+            row.TranslatedText = ReplaceMatches(row.TranslatedText, term);
             rowsChanged++;
             occurrences += hits;
         }
@@ -418,10 +467,11 @@ public partial class MarkdownViewModel : ViewModelBase
         return (match.Value.Trim(), content[match.Length..].TrimStart('\n', '\r'));
     }
 
-    /// <summary>Reads Title/Author/Topic/Date out of the current YAML front matter, for pre-filling the editor dialog.</summary>
-    public (string Title, string Author, string Topic, string Date) GetFrontMatterFields()
+    /// <summary>Reads Title/Author/Topic/Date/TOC out of the current YAML front matter, for pre-filling the editor dialog.</summary>
+    public (string Title, string Author, string Topic, string Date, bool Toc) GetFrontMatterFields()
     {
         string title = "", author = "", topic = "", date = "";
+        bool toc = false;
         if (!string.IsNullOrWhiteSpace(YamlFrontMatter))
         {
             foreach (var line in YamlFrontMatter.Split('\n'))
@@ -438,22 +488,23 @@ public partial class MarkdownViewModel : ViewModelBase
                     case "author": author = value; break;
                     case "topic": case "subject": topic = value; break;
                     case "date": date = value; break;
+                    case "toc": toc = value.ToLowerInvariant() is "true" or "1" or "yes"; break;
                 }
             }
         }
-        return (title, author, topic, date);
+        return (title, author, topic, date, toc);
     }
 
     /// <summary>Builds/replaces the YAML front matter block from the editor dialog's fields.
-    /// Clears it entirely when every field is left blank.</summary>
-    public void SetFrontMatterFields(string title, string author, string topic, string date)
+    /// Clears it entirely when every field is left blank and TOC is off.</summary>
+    public void SetFrontMatterFields(string title, string author, string topic, string date, bool toc)
     {
         title = title.Trim();
         author = author.Trim();
         topic = topic.Trim();
         date = date.Trim();
 
-        if (title.Length == 0 && author.Length == 0 && topic.Length == 0 && date.Length == 0)
+        if (title.Length == 0 && author.Length == 0 && topic.Length == 0 && date.Length == 0 && !toc)
         {
             YamlFrontMatter = null;
             StatusText = "YAML front matter removed.";
@@ -466,6 +517,7 @@ public partial class MarkdownViewModel : ViewModelBase
         if (author.Length > 0) sb.Append($"author: \"{EscapeYamlValue(author)}\"\n");
         if (topic.Length > 0) sb.Append($"topic: \"{EscapeYamlValue(topic)}\"\n");
         if (date.Length > 0) sb.Append($"date: {date}\n");
+        sb.Append($"toc: {(toc ? "true" : "false")}\n");
         sb.Append("---");
 
         YamlFrontMatter = sb.ToString();

@@ -34,7 +34,7 @@ public partial class MainViewModel : ViewModelBase
         SubtitlesTab = new SubtitlesViewModel(translationService, _settingsService, cacheService);
         MarkdownTab = new MarkdownViewModel(translationService, _settingsService, speechService, cacheService, ebookImportService);
         MarkdownPreviewTab = new MarkdownPreviewViewModel(speechService, _settingsService, cacheService, epubExportService, translationService, flashcardService, sharedWordList);
-        AiChatTab = new AiChatViewModel(translationService, _settingsService);
+        AiChatTab = new AiChatViewModel(translationService, _settingsService, speechService);
         SettingsTab = new SettingsViewModel(_settingsService, translationService, _themeService);
         FlashcardsTab = new FlashcardsViewModel(flashcardService, _settingsService, translationService, speechService, sharedWordList);
         MemoryGameTab = new MemoryGameViewModel(flashcardService);

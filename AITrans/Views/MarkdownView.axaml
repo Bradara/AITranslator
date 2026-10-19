@@ -67,6 +67,8 @@
       </TextBox>
       <Button Content="◀" Command="{Binding FindPreviousCommand}" ToolTip.Tip="Предишно съвпадение" Padding="8,4" />
       <Button Content="▶" Command="{Binding FindNextCommand}" ToolTip.Tip="Следващо съвпадение" Padding="8,4" />
+      <ToggleButton Content=".*" IsChecked="{Binding IsRegexSearch}" Padding="8,4"
+                    ToolTip.Tip="Търсене с регулярен израз (Regex)" />
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <TextBlock Text="Замени с:" VerticalAlignment="Center" />
       <TextBox Text="{Binding ReplaceText}" Watermark="Ново съдържание (само в превода)..." Width="200"

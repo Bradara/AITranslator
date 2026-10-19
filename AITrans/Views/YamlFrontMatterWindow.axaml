@@ -6,13 +6,13 @@
         x:CompileBindings="False"
         Title="YAML Заглавка"
         Width="420"
-        Height="320"
+        Height="360"
         MinWidth="360"
-        MinHeight="280"
+        MinHeight="320"
         WindowStartupLocation="CenterOwner"
         CanResize="True">
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="16,14,16,14">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="16,14,16,14">
 
     <TextBlock Grid.Row="0"
                Text="Добавяне на YAML заглавка към файла"
@@ -40,7 +40,10 @@
       <DatePicker Grid.Column="1" SelectedDate="{Binding DateValue, Mode=TwoWay}" HorizontalAlignment="Stretch" />
     </Grid>
 
-    <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,14,0,0">
+    <CheckBox Grid.Row="5" Content="Съдържание (TOC) — показва навигация по заглавия в прегледа"
+              IsChecked="{Binding TocChecked, Mode=TwoWay}" Margin="0,8,0,0" />
+
+    <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,14,0,0">
       <Button Content="Изчисти" Click="OnClear" Padding="12,6" />
       <Button Content="Отказ" Click="OnCancel" Padding="12,6" />
       <Button Content="Запази" Click="OnSave" Padding="12,6" IsDefault="True" />

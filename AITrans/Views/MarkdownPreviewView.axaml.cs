@@ -15,6 +15,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
+using AITrans.Models;
 using AITrans.ViewModels;
 
 namespace AITrans.Views;
@@ -150,7 +151,69 @@ public partial class MarkdownPreviewView : UserControl
         // Scroll chat to bottom when a new message arrives
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.ChatScrollRequest))
             Dispatcher.UIThread.Post(ScrollChatToBottom, DispatcherPriority.Background);
+
+        // TOC click — locate the heading on the (possibly just-switched) page and scroll to it
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.HeadingNavRequest) && vm.HeadingNavRequest is { } navRequest)
+            Dispatcher.UIThread.Post(() => ScrollToHeading(navRequest), DispatcherPriority.Loaded);
     }
+
+    // ── Table of contents: scroll the rendered preview to a clicked heading ─────────────────
+    // Markdown.Avalonia tags rendered headings with style classes "Heading1".."Heading6" (see
+    // ApplyFontSizeStyles below) — we search for the one whose text matches the TOC entry and
+    // scroll it to the top of the preview viewport. Retries a few times since the page may
+    // still be (re)rendering right after a CurrentPage switch.
+
+    private void ScrollToHeading(HeadingNavRequest request, int attemptsLeft = 15)
+    {
+        _previewScroll ??= FindPreviewScrollViewer();
+        if (_previewScroll is null)
+        {
+            if (attemptsLeft > 0)
+                Dispatcher.UIThread.Post(() => ScrollToHeading(request, attemptsLeft - 1), DispatcherPriority.Background);
+            return;
+        }
+
+        var target = FindHeadingControl(request.Level, request.Title);
+        if (target is null)
+        {
+            if (attemptsLeft > 0)
+                Dispatcher.UIThread.Post(() => ScrollToHeading(request, attemptsLeft - 1), DispatcherPriority.Background);
+            return;
+        }
+
+        var point = target.TranslatePoint(new Point(0, 0), _previewScroll);
+        if (point is null) return;
+
+        var y = Math.Max(0, _previewScroll.Offset.Y + point.Value.Y - 10);
+        _previewScroll.Offset = new Vector(_previewScroll.Offset.X, y);
+    }
+
+    private Control? FindHeadingControl(int level, string title)
+    {
+        var normTitle = NormalizeHeadingText(title);
+        Control? fallback = null;
+
+        foreach (var desc in MarkViewer.GetVisualDescendants().OfType<Control>())
+        {
+            if (!desc.Classes.Contains($"Heading{level}")) continue;
+            fallback ??= desc;
+
+            var text = GetHeadingText(desc);
+            if (text != null && NormalizeHeadingText(text).Equals(normTitle, StringComparison.OrdinalIgnoreCase))
+                return desc;
+        }
+        // No exact text match (inline formatting quirks) — land on the first heading of that
+        // level on the page, which is still the right section in the common case.
+        return fallback;
+    }
+
+    private static string? GetHeadingText(Control control)
+    {
+        if (control is TextBlock tb) return tb.Text;
+        return control.GetType().GetProperty("Text")?.GetValue(control) as string;
+    }
+
+    private static string NormalizeHeadingText(string s) => System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ").Trim();
 
     private void RestoreOrScrollToPending()
     {
@@ -380,6 +443,70 @@ public partial class MarkdownPreviewView : UserControl
         if (DataContext is not MarkdownPreviewViewModel vm) return;
         var selectedText = await GetViewerSelectedTextAsync(vm);
         await vm.ReadFromTextAsync(selectedText);
+    }
+
+    // Preview right-click menu — copies the current selection to the clipboard.
+    private async void OnCopySelectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+
+        var text = await GetViewerSelectedTextAsync(vm);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Няма маркиран текст за копиране.";
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+
+        await clipboard.SetTextAsync(text);
+        vm.StatusText = "Текстът е копиран в клипборда.";
+    }
+
+    // Chat bubble right-click menu — copies whatever's selected across the chat history;
+    // with nothing selected, falls back to copying the whole right-clicked message.
+    private async void OnCopyChatSelectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+
+        var text = GetChatSelectedText();
+        if (string.IsNullOrWhiteSpace(text) && sender is MenuItem { DataContext: ChatMessage msg })
+            text = msg.Content;
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            vm.StatusText = "Няма текст за копиране.";
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+
+        await clipboard.SetTextAsync(text);
+        vm.StatusText = "Текстът е копиран в клипборда.";
+    }
+
+    /// <summary>Scans the chat history for a text selection — user bubbles use SelectableTextBlock
+    /// directly, assistant bubbles render through Markdown.Avalonia's own text control (found via
+    /// the same reflection fallback used by GetViewerSelectedTextAsync).</summary>
+    private string? GetChatSelectedText()
+    {
+        var selectableParts = ChatScrollViewer.GetVisualDescendants()
+            .OfType<SelectableTextBlock>()
+            .Select(stb => stb.SelectedText)
+            .Where(t => !string.IsNullOrEmpty(t))
+            .ToList();
+        if (selectableParts.Count > 0)
+            return string.Join(" ", selectableParts).Trim();
+
+        foreach (var desc in ChatScrollViewer.GetVisualDescendants())
+        {
+            var prop = desc.GetType().GetProperty("SelectedText");
+            if (prop?.GetValue(desc) is string s && !string.IsNullOrEmpty(s))
+                return s.Trim();
+        }
+        return null;
     }
 
     private async void OnPasteFromClipboardClick(object? sender, RoutedEventArgs e)

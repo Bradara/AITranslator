@@ -273,8 +273,8 @@ public partial class MarkdownView : UserControl
     {
         if (DataContext is not MarkdownViewModel vm) return;
 
-        var (title, author, topic, date) = vm.GetFrontMatterFields();
-        var window = new YamlFrontMatterWindow(title, author, topic, date);
+        var (title, author, topic, date, toc) = vm.GetFrontMatterFields();
+        var window = new YamlFrontMatterWindow(title, author, topic, date, toc);
         if (TopLevel.GetTopLevel(this) is Window parent)
             await window.ShowDialog(parent);
         else
@@ -283,7 +283,7 @@ public partial class MarkdownView : UserControl
         if (!window.Saved) return;
 
         var dateText = window.DateValue?.ToString("yyyy-MM-dd") ?? "";
-        vm.SetFrontMatterFields(window.TitleText, window.AuthorText, window.TopicText, dateText);
+        vm.SetFrontMatterFields(window.TitleText, window.AuthorText, window.TopicText, dateText, window.TocChecked);
     }
 
     private async void OnOpenFileClick(object? sender, RoutedEventArgs e)
