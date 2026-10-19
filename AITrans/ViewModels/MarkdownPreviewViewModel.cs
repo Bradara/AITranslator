@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AITrans.Models;
@@ -344,31 +345,47 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     public void LoadFile(string path)
     {
+        PushCurrentToHistory();
+        LoadFileCore(File.ReadAllText(path), path, Path.GetFileName(path));
+        RegisterRecentFile(path);
+        GoBackCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Loads from a picked <see cref="IStorageFile"/> via its stream (works on Browser/Android).</summary>
+    public async Task LoadFileAsync(IStorageFile file)
+    {
+        PushCurrentToHistory();
+        var content = await file.ReadAllTextAsync();
+        var displayPath = file.GetDisplayPath();
+        LoadFileCore(content, displayPath, file.Name);
+        RegisterRecentFile(displayPath);
+        GoBackCommand.NotifyCanExecuteChanged();
+    }
+
+    private void PushCurrentToHistory()
+    {
         if (!string.IsNullOrEmpty(LoadedFilePath))
         {
             SaveChatHistory();
             _navHistory.Push(LoadedFilePath);
         }
-        LoadFileCore(path);
-        RegisterRecentFile(path);
-        GoBackCommand.NotifyCanExecuteChanged();
     }
 
-    private void LoadFileCore(string path)
+    private void LoadFileCore(string content, string displayPath, string fileName)
     {
         _loadingFile = true;
         // Set the path before the content so GetPreviewKey() resolves to the new file
         // when MarkdownText's setter synchronously triggers RebuildPages() below.
-        LoadedFilePath = path;
-        var (frontMatter, body, tocFlag) = ExtractFrontMatter(File.ReadAllText(path));
+        LoadedFilePath = displayPath;
+        var (frontMatter, body, tocFlag) = ExtractFrontMatter(content);
         _yamlFrontMatter = frontMatter;
         MarkdownText = body;  // triggers OnMarkdownTextChanged → BuildPlainText()/RebuildToc()
         _loadingFile = false;
         HasUnsavedChanges = false;
         ShowToc = tocFlag && TocItems.Count > 0;
-        StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {Path.GetFileName(path)}.";
+        StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {fileName}.";
         RestoreLastReadParagraph();
-        LoadChatHistory(path);
+        LoadChatHistory(displayPath);
         ChatInput = "";
     }
 
@@ -461,21 +478,41 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         SaveChatHistory();
         var prevPath = _navHistory.Pop();
-        LoadFileCore(prevPath);
-        RegisterRecentFile(prevPath);
+        // prevPath is only reusable when it's a real OS path (Desktop, and often Android). On
+        // Browser (and unresolvable Android content URIs) it's just a display name we can't reopen.
+        if (Path.IsPathRooted(prevPath) && File.Exists(prevPath))
+        {
+            LoadFileCore(File.ReadAllText(prevPath), prevPath, Path.GetFileName(prevPath));
+            RegisterRecentFile(prevPath);
+        }
+        else
+        {
+            StatusText = $"Could not reopen {prevPath} on this platform.";
+        }
         GoBackCommand.NotifyCanExecuteChanged();
     }
 
+    private string GetSaveText() => string.IsNullOrWhiteSpace(_yamlFrontMatter)
+        ? MarkdownText
+        : _yamlFrontMatter.TrimEnd() + "\n\n" + MarkdownText;
+
     public void SaveToFile(string path)
     {
-        var text = string.IsNullOrWhiteSpace(_yamlFrontMatter)
-            ? MarkdownText
-            : _yamlFrontMatter.TrimEnd() + "\n\n" + MarkdownText;
-        File.WriteAllText(path, text);
+        File.WriteAllText(path, GetSaveText());
         LoadedFilePath = path;
         RegisterRecentFile(path);
         HasUnsavedChanges = false;
         StatusText = $"Saved {Path.GetFileName(path)}.";
+    }
+
+    public async Task SaveToFileAsync(IStorageFile file)
+    {
+        await file.WriteAllTextAsync(GetSaveText());
+        var displayPath = file.GetDisplayPath();
+        LoadedFilePath = displayPath;
+        RegisterRecentFile(displayPath);
+        HasUnsavedChanges = false;
+        StatusText = $"Saved {file.Name}.";
     }
 
     /// <summary>Called from code-behind when the user moves the caret in the raw editor.</summary>

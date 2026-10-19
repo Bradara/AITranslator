@@ -9,10 +9,12 @@ namespace AITrans.Services;
 
 public static class SrtParser
 {
-    public static List<SrtEntry> Parse(string filePath)
+    public static List<SrtEntry> Parse(string filePath) => ParseContent(File.ReadAllText(filePath, Encoding.UTF8));
+
+    public static List<SrtEntry> ParseContent(string rawContent)
     {
         var entries = new List<SrtEntry>();
-        var content = File.ReadAllText(filePath, Encoding.UTF8).TrimStart('\uFEFF');
+        var content = rawContent.TrimStart('\uFEFF');
         var blocks = Regex.Split(content.Trim(), @"\r?\n\r?\n");
 
         foreach (var block in blocks)
@@ -39,7 +41,10 @@ public static class SrtParser
         return entries;
     }
 
-    public static void Write(string filePath, List<SrtEntry> entries)
+    public static void Write(string filePath, List<SrtEntry> entries) =>
+        File.WriteAllText(filePath, BuildContent(entries), new UTF8Encoding(false));
+
+    public static string BuildContent(List<SrtEntry> entries)
     {
         var sb = new StringBuilder();
         foreach (var entry in entries)
@@ -49,6 +54,6 @@ public static class SrtParser
             sb.AppendLine(string.IsNullOrEmpty(entry.TranslatedText) ? entry.OriginalText : entry.TranslatedText);
             sb.AppendLine();
         }
-        File.WriteAllText(filePath, sb.ToString(), new UTF8Encoding(false));
+        return sb.ToString();
     }
 }

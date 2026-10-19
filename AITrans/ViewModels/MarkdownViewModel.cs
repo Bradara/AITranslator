@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AITrans.Models;
@@ -426,33 +427,65 @@ public partial class MarkdownViewModel : ViewModelBase
     public void LoadFile(string path)
     {
         var content = File.ReadAllText(path);
+        LoadFileCore(content, path, Path.GetFileName(path));
+    }
+
+    /// <summary>
+    /// Loads from a picked <see cref="IStorageFile"/> via its stream, rather than a raw OS path.
+    /// Works on Browser/Android, where the picked file may have no real local path.
+    /// </summary>
+    public async Task LoadFileAsync(IStorageFile file)
+    {
+        var content = await file.ReadAllTextAsync();
+        LoadFileCore(content, file.GetDisplayPath(), file.Name);
+    }
+
+    private void LoadFileCore(string content, string displayPath, string fileName)
+    {
         var (frontMatter, body) = ExtractFrontMatter(content);
         YamlFrontMatter = frontMatter;
         InputText = body;
-        LoadedFilePath = path;
+        LoadedFilePath = displayPath;
         ParseParagraphs();
         RequestRestoreScroll();
-        StatusText = $"Loaded {Paragraphs.Count} paragraphs from {Path.GetFileName(path)}";
+        StatusText = $"Loaded {Paragraphs.Count} paragraphs from {fileName}";
     }
 
     public void SaveTranslation(string path)
     {
-        var text = WithFrontMatter(GetCombinedTranslation());
-        File.WriteAllText(path, text);
+        File.WriteAllText(path, WithFrontMatter(GetCombinedTranslation()));
         StatusText = $"Saved to {Path.GetFileName(path)}";
         // Cache is preserved so translation progress isn't lost
         UpdateCacheInfo();
     }
 
+    public async Task SaveTranslationAsync(IStorageFile file)
+    {
+        await file.WriteAllTextAsync(WithFrontMatter(GetCombinedTranslation()));
+        StatusText = $"Saved to {file.Name}";
+        UpdateCacheInfo();
+    }
+
     public void SaveOriginal(string path)
+    {
+        File.WriteAllText(path, WithFrontMatter(GetOriginalText()), System.Text.Encoding.UTF8);
+        LoadedFilePath = path;
+        StatusText = $"Original saved to {Path.GetFileName(path)}";
+    }
+
+    public async Task SaveOriginalAsync(IStorageFile file)
+    {
+        await file.WriteAllTextAsync(WithFrontMatter(GetOriginalText()));
+        LoadedFilePath = file.GetDisplayPath();
+        StatusText = $"Original saved to {file.Name}";
+    }
+
+    private string GetOriginalText()
     {
         var text = InputText;
         if (string.IsNullOrWhiteSpace(text) && Paragraphs.Count > 0)
             text = string.Join("\n\n", Paragraphs.Select(p => p.OriginalText));
-
-        File.WriteAllText(path, WithFrontMatter(text), System.Text.Encoding.UTF8);
-        LoadedFilePath = path;
-        StatusText = $"Original saved to {Path.GetFileName(path)}";
+        return text;
     }
 
     private string WithFrontMatter(string body)

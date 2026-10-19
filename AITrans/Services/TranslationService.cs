@@ -16,17 +16,21 @@ namespace AITrans.Services;
 
 public class TranslationService
 {
-    private static readonly HttpClient HttpClient = new(new SocketsHttpHandler
-    {
-        // Explicitly enable TLS 1.2 and 1.3 to avoid SSL handshake failures
-        // on endpoints like api.x.ai that require modern TLS cipher suites.
-        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+    // SocketsHttpHandler (and SslClientAuthenticationOptions) aren't supported on browser-wasm,
+    // where HTTP goes through the browser's own fetch/XHR stack instead.
+    private static readonly HttpClient HttpClient = OperatingSystem.IsBrowser()
+        ? new HttpClient()
+        : new HttpClient(new SocketsHttpHandler
         {
-            EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12
-                | System.Security.Authentication.SslProtocols.Tls13
-        },
-        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-    });
+            // Explicitly enable TLS 1.2 and 1.3 to avoid SSL handshake failures
+            // on endpoints like api.x.ai that require modern TLS cipher suites.
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12
+                    | System.Security.Authentication.SslProtocols.Tls13
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        });
     private const int MaxRetries = 3;
     private const int LocalTranslationMinTokens = 512;
     private const int LocalTranslationMaxTokens = 4096;

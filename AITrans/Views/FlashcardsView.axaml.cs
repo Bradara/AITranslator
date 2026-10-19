@@ -30,11 +30,15 @@ public partial class FlashcardsView : UserControl
     private async void OnShowAllCardsClick(object? sender, RoutedEventArgs e)
     {
         if (Vm == null) return;
+        // Window(...) requires the classic desktop multi-window platform — constructing one at all
+        // throws fatally on Browser/Android (ISingleViewApplicationLifetime has no windowing).
+        if (TopLevel.GetTopLevel(this) is not Window parent)
+        {
+            Vm.StatusText = "Редакторът за всички карти не е наличен на тази платформа.";
+            return;
+        }
         var window = new FlashCardEditWindow(Vm.FlashcardService, Vm.Cards);
-        if (TopLevel.GetTopLevel(this) is Window parent)
-            await window.ShowDialog(parent);
-        else
-            window.Show();
+        await window.ShowDialog(parent);
         // Rebuild the quiz deck in case cards were deleted
         Vm.RebuildAfterEdit();
     }

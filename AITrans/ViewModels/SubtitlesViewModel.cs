@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AITrans.Models;
@@ -187,14 +188,22 @@ public partial class SubtitlesViewModel : ViewModelBase
             ScrollToRow = Math.Min(firstRemoved, Entries.Count - 1);
     }
 
-    public void LoadFile(string path)
+    public void LoadFile(string path) => LoadFileCore(SrtParser.Parse(path), path, System.IO.Path.GetFileName(path));
+
+    /// <summary>Loads from a picked <see cref="IStorageFile"/> via its stream (works on Browser/Android).</summary>
+    public async Task LoadFileAsync(IStorageFile file)
     {
-        var parsed = SrtParser.Parse(path);
+        var content = await file.ReadAllTextAsync();
+        LoadFileCore(SrtParser.ParseContent(content), file.GetDisplayPath(), file.Name);
+    }
+
+    private void LoadFileCore(List<SrtEntry> parsed, string displayPath, string fileName)
+    {
         Entries = new ObservableCollection<SrtEntry>(parsed);
-        LoadedFilePath = path;
-        StatusText = $"Loaded {parsed.Count} entries from {System.IO.Path.GetFileName(path)}";
+        LoadedFilePath = displayPath;
+        StatusText = $"Loaded {parsed.Count} entries from {fileName}";
         OnPropertyChanged(nameof(HasEntries));
-        UpdateCacheInfo(path);
+        UpdateCacheInfo(displayPath);
         ScrollToRow = GetRestoreRowIndex();
     }
 
@@ -203,6 +212,13 @@ public partial class SubtitlesViewModel : ViewModelBase
         SrtParser.Write(path, [.. Entries]);
         StatusText = $"Saved to {System.IO.Path.GetFileName(path)}";
         // Cache is preserved so translation progress isn't lost
+        UpdateCacheInfo(LoadedFilePath);
+    }
+
+    public async Task SaveFileAsync(IStorageFile file)
+    {
+        await file.WriteAllTextAsync(SrtParser.BuildContent([.. Entries]));
+        StatusText = $"Saved to {file.Name}";
         UpdateCacheInfo(LoadedFilePath);
     }
 

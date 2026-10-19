@@ -680,7 +680,9 @@ public partial class MarkdownPreviewView : UserControl
     {
         if (DataContext is not MarkdownPreviewViewModel vm) return;
 
-        if (!string.IsNullOrEmpty(vm.LoadedFilePath))
+        // Only re-save directly when LoadedFilePath is a real, reusable OS path. On Browser/Android
+        // it may just be a display name with nothing to reopen (Path.IsPathRooted is false then).
+        if (!string.IsNullOrEmpty(vm.LoadedFilePath) && Path.IsPathRooted(vm.LoadedFilePath))
         {
             vm.SaveToFile(vm.LoadedFilePath);
             return;
@@ -702,7 +704,7 @@ public partial class MarkdownPreviewView : UserControl
         });
 
         if (file != null)
-            vm.SaveToFile(file.Path.LocalPath);
+            await vm.SaveToFileAsync(file);
     }
 
     private async void OnExportEpubClick(object? sender, RoutedEventArgs e)
@@ -767,17 +769,21 @@ public partial class MarkdownPreviewView : UserControl
         });
 
         if (files.Count > 0 && DataContext is MarkdownPreviewViewModel vm)
-            vm.LoadFile(files[0].Path.LocalPath);
+            await vm.LoadFileAsync(files[0]);
     }
 
     private async void OnHistoryClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MarkdownPreviewViewModel vm) return;
+        // Window(...) requires the classic desktop multi-window platform — constructing one at all
+        // throws fatally on Browser/Android (ISingleViewApplicationLifetime has no windowing).
+        if (TopLevel.GetTopLevel(this) is not Window parent)
+        {
+            vm.StatusText = "Историята на файлове не е налична на тази платформа.";
+            return;
+        }
         var window = new FileHistoryWindow(vm.CacheService);
-        if (TopLevel.GetTopLevel(this) is Window parent)
-            await window.ShowDialog(parent);
-        else
-            window.Show();
+        await window.ShowDialog(parent);
         if (window.SelectedFilePath != null && File.Exists(window.SelectedFilePath))
             vm.LoadFile(window.SelectedFilePath);
         else if (window.SelectedFilePath != null)

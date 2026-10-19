@@ -30,11 +30,15 @@ public partial class MarkdownView : UserControl
     private async void OnRestoreCacheClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MarkdownViewModel vm) return;
+        // Window(...) requires the classic desktop multi-window platform — constructing one at all
+        // throws fatally on Browser/Android (ISingleViewApplicationLifetime has no windowing).
+        if (TopLevel.GetTopLevel(this) is not Window parent)
+        {
+            vm.StatusText = "Историята на кеша не е налична на тази платформа.";
+            return;
+        }
         var window = new CacheHistoryWindow(vm.CacheService, isSubtitle: false);
-        if (TopLevel.GetTopLevel(this) is Window parent)
-            await window.ShowDialog(parent);
-        else
-            window.Show();
+        await window.ShowDialog(parent);
         vm.RefreshCacheInfo();
         if (window.SelectedKey != null)
             vm.LoadCacheFromKey(window.SelectedKey);
@@ -273,12 +277,17 @@ public partial class MarkdownView : UserControl
     {
         if (DataContext is not MarkdownViewModel vm) return;
 
+        // Window(...) requires the classic desktop multi-window platform — constructing one at all
+        // throws fatally on Browser/Android (ISingleViewApplicationLifetime has no windowing).
+        if (TopLevel.GetTopLevel(this) is not Window parent)
+        {
+            vm.StatusText = "Редакторът за YAML заглавие не е наличен на тази платформа.";
+            return;
+        }
+
         var (title, author, topic, date, toc) = vm.GetFrontMatterFields();
         var window = new YamlFrontMatterWindow(title, author, topic, date, toc);
-        if (TopLevel.GetTopLevel(this) is Window parent)
-            await window.ShowDialog(parent);
-        else
-            window.Show();
+        await window.ShowDialog(parent);
 
         if (!window.Saved) return;
 
@@ -302,7 +311,7 @@ public partial class MarkdownView : UserControl
         });
 
         if (files.Count > 0 && DataContext is MarkdownViewModel vm)
-            vm.LoadFile(files[0].Path.LocalPath);
+            await vm.LoadFileAsync(files[0]);
     }
 
     private async void OnImportEbookClick(object? sender, RoutedEventArgs e)
@@ -370,7 +379,7 @@ public partial class MarkdownView : UserControl
         });
 
         if (file != null)
-            vm.SaveTranslation(file.Path.LocalPath);
+            await vm.SaveTranslationAsync(file);
     }
 
     private async void OnSaveOriginalClick(object? sender, RoutedEventArgs e)
@@ -380,8 +389,10 @@ public partial class MarkdownView : UserControl
 
         if (DataContext is not MarkdownViewModel vm) return;
 
-        // If a file is already loaded, save directly without prompting
-        if (vm.LoadedFilePath is not null)
+        // If a file is already loaded at a real, reusable path, save directly without prompting.
+        // On Browser/Android, LoadedFilePath may just be a display name with no path to reopen
+        // (Path.IsPathRooted is false for those), so fall back to the picker in that case.
+        if (vm.LoadedFilePath is not null && System.IO.Path.IsPathRooted(vm.LoadedFilePath))
         {
             vm.SaveOriginal(vm.LoadedFilePath);
             return;
@@ -418,7 +429,7 @@ public partial class MarkdownView : UserControl
         });
 
         if (file != null)
-            vm.SaveOriginal(file.Path.LocalPath);
+            await vm.SaveOriginalAsync(file);
     }
 }
 

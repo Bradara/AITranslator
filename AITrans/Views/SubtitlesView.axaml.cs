@@ -185,11 +185,15 @@ public partial class SubtitlesView : UserControl
     private async void OnRestoreCacheClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not SubtitlesViewModel vm) return;
+        // Window(...) requires the classic desktop multi-window platform — constructing one at all
+        // throws fatally on Browser/Android (ISingleViewApplicationLifetime has no windowing).
+        if (TopLevel.GetTopLevel(this) is not Window parent)
+        {
+            vm.StatusText = "Историята на кеша не е налична на тази платформа.";
+            return;
+        }
         var window = new CacheHistoryWindow(vm.CacheService, isSubtitle: true);
-        if (TopLevel.GetTopLevel(this) is Window parent)
-            await window.ShowDialog(parent);
-        else
-            window.Show();
+        await window.ShowDialog(parent);
         vm.RefreshCacheInfo();
         if (window.SelectedKey != null)
             vm.LoadCacheFromKey(window.SelectedKey);
@@ -211,7 +215,7 @@ public partial class SubtitlesView : UserControl
 
         if (files.Count > 0 && DataContext is SubtitlesViewModel vm2)
         {
-            vm2.LoadFile(files[0].Path.LocalPath);
+            await vm2.LoadFileAsync(files[0]);
         }
     }
 
@@ -231,7 +235,7 @@ public partial class SubtitlesView : UserControl
 
         if (file != null && DataContext is SubtitlesViewModel vm2)
         {
-            vm2.SaveFile(file.Path.LocalPath);
+            await vm2.SaveFileAsync(file);
         }
     }
 }
