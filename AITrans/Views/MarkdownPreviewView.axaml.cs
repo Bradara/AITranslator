@@ -7,15 +7,19 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Reactive;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using AITrans.Models;
+using AITrans.Services;
 using AITrans.ViewModels;
 
 namespace AITrans.Views;
@@ -35,6 +39,15 @@ public partial class MarkdownPreviewView : UserControl
     private int _restoreRetryCount;
     private const int MaxRestoreRetries = 30;
     private bool _restoringScroll;
+
+    // WYSIWYG host (Desktop only — see WysiwygEditorProvider)
+    private Control? _wysiwygControl;
+    private IDisposable? _wysiwygThemeSub;
+
+    // In-document search — tracks the last match's start so repeated Enter/▼ advances instead
+    // of restarting from the caret each time; reset whenever the query text itself changes.
+    private string _lastSearchQuery = "";
+    private int _lastSearchMatchStart = -1;
 
     public MarkdownPreviewView()
     {
@@ -66,7 +79,13 @@ public partial class MarkdownPreviewView : UserControl
 
         // Apply the initial font size
         ApplyFontSizeStyles(vm.PreviewFontSize);
+        PushWysiwygStyle(vm);
         HookScrollViewers();
+
+        // DataContext comes from an inherited binding, so after a reattach it can arrive later
+        // than OnAttachedToVisualTree — catch up here if WYSIWYG should be showing.
+        if (VisualRoot is not null && IsVisible)
+            ShowWysiwygIfNeeded(vm);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -78,8 +97,15 @@ public partial class MarkdownPreviewView : UserControl
         {
             HookScrollViewers(); // Ensure hooks are set up when tab becomes visible
             if (DataContext is MarkdownPreviewViewModel vm)
+            {
                 vm.RequestRestoreScroll();
+                ShowWysiwygIfNeeded(vm);
+            }
             Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            DiscardWysiwygControl();
         }
     }
 
@@ -89,9 +115,26 @@ public partial class MarkdownPreviewView : UserControl
         if (e.Root is Window win)
             win.Closing += OnWindowClosing;
         if (DataContext is MarkdownPreviewViewModel vm)
+        {
             vm.RequestRestoreScroll();
+            ShowWysiwygIfNeeded(vm);
+        }
         Dispatcher.UIThread.Post(RestoreOrScrollToPending, DispatcherPriority.Loaded);
         HookScrollViewers();
+
+        // ThemeTextBrush is defined by every theme (built-in Light/Dark and every custom theme
+        // file alike — see Themes/*.axaml), so it doubles as a reliable "some theme-related
+        // resource just changed" signal, whether that's a Light/Dark flip or swapping to a
+        // different custom theme of the same variant (which doesn't raise ActualThemeVariantChanged).
+        _wysiwygThemeSub = this.GetResourceObservable("ThemeTextBrush").Subscribe(new AnonymousObserver<object?>(_ =>
+        {
+            // Deferred: ThemeService flips RequestedThemeVariant before adding the custom theme's
+            // styles, so resolve once both changes have landed.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (DataContext is MarkdownPreviewViewModel current) PushWysiwygStyle(current);
+            }, DispatcherPriority.Background);
+        }));
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -102,6 +145,9 @@ public partial class MarkdownPreviewView : UserControl
         if (DataContext is MarkdownPreviewViewModel vm)
             vm.PersistSessionState();
         UnhookScrollViewers();
+        DiscardWysiwygControl();
+        _wysiwygThemeSub?.Dispose();
+        _wysiwygThemeSub = null;
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -132,9 +178,13 @@ public partial class MarkdownPreviewView : UserControl
                 _previewScroll.LayoutUpdated -= OnPreviewScrollLayoutUpdated;
         }
 
-        // Rebuild font-size override styles when the user clicks A+/A-
+        // Rebuild font-size override styles when the user clicks A+/A- — same PreviewFontSize
+        // drives both Rendered (Avalonia styles) and WYSIWYG (CSS), so they stay in lockstep.
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.PreviewFontSize))
+        {
             ApplyFontSizeStyles(vm.PreviewFontSize);
+            PushWysiwygStyle(vm);
+        }
 
         // Scroll preview to top when page changes
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.CurrentPage))
@@ -155,6 +205,365 @@ public partial class MarkdownPreviewView : UserControl
         // TOC click — locate the heading on the (possibly just-switched) page and scroll to it
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.HeadingNavRequest) && vm.HeadingNavRequest is { } navRequest)
             Dispatcher.UIThread.Post(() => ScrollToHeading(navRequest), DispatcherPriority.Loaded);
+
+        // Entering WYSIWYG mode, loading a new file, or paging while already in it — (re)populate
+        // the editor with the current page. Edits made inside the editor flow back through
+        // ApplyWysiwygPageEdit (see OnWysiwygMarkdownChanged) without touching CurrentPage, so
+        // this branch doesn't re-fire and stomp on content the user is actively editing.
+        // Scroll position is only restored on the first two (resuming where the user left off) —
+        // a plain page turn starts at the top of the new page, same as Rendered mode's
+        // ScrollPreviewToTop above.
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.DisplayMode))
+        {
+            if (vm.IsWysiwygMode)
+                EnsureWysiwygContent(vm, restoreScroll: true);
+            else
+                DiscardWysiwygControl();
+        }
+        else if (pe.PropertyName == nameof(MarkdownPreviewViewModel.LoadedFilePath) && vm.IsWysiwygMode)
+            EnsureWysiwygContent(vm, restoreScroll: true);
+        else if (pe.PropertyName == nameof(MarkdownPreviewViewModel.CurrentPage) && vm.IsWysiwygMode)
+            EnsureWysiwygContent(vm, restoreScroll: false);
+
+        // Search bar opened (via the 🔍 button or Ctrl+F) — focus it. IsSearchOpen only raises
+        // when it actually flips to true, so a repeat Ctrl+F while already open is a no-op here;
+        // acceptable since the bar is already visible and usable in that case.
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.IsSearchOpen) && vm.IsSearchOpen)
+            Dispatcher.UIThread.Post(() => { SearchBox.Focus(); SearchBox.SelectAll(); }, DispatcherPriority.Loaded);
+    }
+
+    // ── WYSIWYG editor (Desktop only) ───────────────────────────────────────
+
+    /// <summary>Called whenever this view (re)appears — attached, made visible, or handed its
+    /// DataContext. Creates a fresh WYSIWYG control if that mode is active and none exists.</summary>
+    private void ShowWysiwygIfNeeded(MarkdownPreviewViewModel vm)
+    {
+        if (vm.IsWysiwygMode && _wysiwygControl is null)
+            EnsureWysiwygContent(vm, restoreScroll: true);
+    }
+
+    /// <summary>Creates the WYSIWYG control if needed, then pushes the current page into it.
+    /// A control is only ever shown once: every time WYSIWYG mode is left, or this view is hidden
+    /// or detached (MainView's TabControl switching away), DiscardWysiwygControl drops it and the
+    /// next show builds a brand-new one. Re-showing the same WebView instance — whether by
+    /// toggling IsVisible or by detaching/reattaching it through WysiwygHost.Content — reliably
+    /// leaves the native surface blank even though the page inside loads fine, while a first-ever
+    /// show always works.</summary>
+    private void EnsureWysiwygContent(MarkdownPreviewViewModel vm, bool restoreScroll = true)
+    {
+        if (_wysiwygControl is null)
+        {
+            try
+            {
+                _wysiwygControl = WysiwygEditorProvider.Factory?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                vm.StatusText = $"WYSIWYG не е наличен: {ex.Message}";
+                vm.DisplayMode = PreviewDisplayMode.Rendered;
+                return;
+            }
+
+            if (_wysiwygControl is null)
+            {
+                vm.DisplayMode = PreviewDisplayMode.Rendered;
+                return;
+            }
+
+            if (_wysiwygControl is IWysiwygEditorControl editor)
+            {
+                editor.MarkdownChanged += OnWysiwygMarkdownChanged;
+                editor.ScrollChanged += OnWysiwygScrollChanged;
+                editor.ErrorOccurred += OnWysiwygError;
+                editor.ContextMenuRequested += OnWysiwygContextMenuRequested;
+            }
+
+            WysiwygHost.Content = _wysiwygControl;
+            PushWysiwygStyle(vm);
+        }
+
+        PushWysiwygMarkdown(vm, restoreScroll);
+    }
+
+    private void PushWysiwygMarkdown(MarkdownPreviewViewModel vm, bool restoreScroll)
+    {
+        if (_wysiwygControl is not IWysiwygEditorControl ctrl) return;
+        var scrollY = restoreScroll ? vm.GetWysiwygScrollY() : 0;
+        ctrl.SetMarkdown(RewriteImagePaths(vm.CurrentPageMarkdown, vm.LoadedFilePath, toAbsolute: true), scrollY);
+    }
+
+    /// <summary>Unhooks and drops the current WYSIWYG control (see EnsureWysiwygContent for why it
+    /// is never reused). Edits already reached the view-model through MarkdownChanged and the
+    /// scroll position through ScrollChanged, so nothing is lost.</summary>
+    private void DiscardWysiwygControl()
+    {
+        if (_wysiwygControl is null) return;
+        if (_wysiwygControl is IWysiwygEditorControl editor)
+        {
+            editor.MarkdownChanged -= OnWysiwygMarkdownChanged;
+            editor.ScrollChanged -= OnWysiwygScrollChanged;
+            editor.ErrorOccurred -= OnWysiwygError;
+            editor.ContextMenuRequested -= OnWysiwygContextMenuRequested;
+        }
+        WysiwygHost.Content = null;
+        _wysiwygControl = null;
+    }
+
+    private void OnWysiwygScrollChanged(double y)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is MarkdownPreviewViewModel vm) vm.SaveWysiwygScrollY(y);
+        });
+    }
+
+    /// <summary>Right-click inside the WYSIWYG editor — shows the app's own menu at the click point
+    /// (an Avalonia popup is its own native window, so it draws above the WebView). Works on the
+    /// selection captured at right-click time, since the menu takes focus away from the page.</summary>
+    private void OnWysiwygContextMenuRequested(string selectedText, double x, double y)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MarkdownPreviewViewModel vm || _wysiwygControl is not { } target) return;
+            var editor = target as IWysiwygEditorControl;
+            var hasSelection = !string.IsNullOrWhiteSpace(selectedText);
+
+            MenuItem Item(string header, Func<Task> action, bool enabled = true)
+            {
+                var item = new MenuItem { Header = header, IsEnabled = enabled };
+                item.Click += async (_, _) => await action();
+                return item;
+            }
+
+            var aiEnabled = hasSelection && !vm.IsChatBusy;
+            var menu = new ContextMenu
+            {
+                PlacementTarget = target,
+                Placement = PlacementMode.AnchorAndGravity,
+                PlacementRect = new Rect(x, y, 1, 1),
+                PlacementAnchor = PopupAnchor.TopLeft,
+                PlacementGravity = PopupGravity.BottomRight,
+                ItemsSource = new Control[]
+                {
+                    Item("📋 Копирай", () => CopyToClipboardAsync(vm, selectedText), hasSelection),
+                    Item("✂ Изрежи", async () =>
+                    {
+                        await CopyToClipboardAsync(vm, selectedText);
+                        editor?.InsertText("");
+                    }, hasSelection),
+                    Item("📥 Постави", async () =>
+                    {
+                        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                        if (clipboard is null) return;
+#pragma warning disable CS0618
+                        var text = await clipboard.GetTextAsync();
+#pragma warning restore CS0618
+                        if (!string.IsNullOrEmpty(text)) editor?.InsertText(text);
+                    }),
+                    new Separator(),
+                    Item("🌐 Преведи", () => TranslateAsync(vm, selectedText), aiEnabled),
+                    Item("💡 Обясни", () => ExplainAsync(vm, selectedText), aiEnabled),
+                    Item("📝 Обобщи", () => SummarizeAsync(vm, selectedText), aiEnabled),
+                    Item("📖 Добави дума", () => AddToWordListAsync(vm, selectedText), hasSelection),
+                    new Separator(),
+                    Item("🔊 Прочети оттук", () => vm.ReadFromTextAsync(hasSelection ? selectedText : null)),
+                }
+            };
+            menu.Open(target);
+        });
+    }
+
+    private async Task CopyToClipboardAsync(MarkdownPreviewViewModel vm, string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null || string.IsNullOrEmpty(text)) return;
+        await clipboard.SetTextAsync(text);
+        vm.StatusText = "Текстът е копиран в клипборда.";
+    }
+
+    private void OnWysiwygError(string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is MarkdownPreviewViewModel vm) vm.StatusText = $"WYSIWYG грешка: {message}";
+        });
+    }
+
+    /// <summary>Pushes the app's current theme colors and Preview's font size into the WYSIWYG
+    /// WebView (see IWysiwygEditorControl.ApplyHostStyle) — a no-op if the control doesn't exist
+    /// yet, since EnsureWysiwygContent calls this again once it does.</summary>
+    private void PushWysiwygStyle(MarkdownPreviewViewModel vm)
+    {
+        if (_wysiwygControl is not IWysiwygEditorControl editor) return;
+        var (bg, text, codeBg, border) = ResolveWysiwygColors();
+        editor.ApplyHostStyle(bg, text, codeBg, border, vm.PreviewFontSize);
+    }
+
+    /// <summary>Resolves the active theme's colors for the WYSIWYG WebView. Custom themes
+    /// (Themes/*.axaml) define ThemeBackgroundBrush/ThemeCodeBackgroundBrush/ThemeControlBorderBrush;
+    /// the built-in System/Light/Dark variants don't (see App.axaml's ThemeDictionaries, which
+    /// only define ThemeTextBrush/ThemeAccentBrush), so those fall back to FluentTheme-equivalent
+    /// colors picked from ActualThemeVariant.</summary>
+    private (string Bg, string Text, string CodeBg, string Border) ResolveWysiwygColors()
+    {
+        var variant = ActualThemeVariant;
+        var isDark = variant == ThemeVariant.Dark;
+
+        // Must pass the variant explicitly: the overload without one resolves App.axaml's
+        // ThemeDictionaries against the "Default" key, whose ThemeTextBrush is white — that's
+        // what left WYSIWYG text white on light themes. This matches what {DynamicResource}
+        // resolves for the Rendered preview.
+        string Resolve(string key, string fallback) =>
+            this.TryFindResource(key, variant, out var res) && res is ISolidColorBrush brush
+                ? ToHex(brush.Color)
+                : fallback;
+
+        var bg = Resolve("ThemeBackgroundBrush", isDark ? "#1E1E1E" : "#FFFFFF");
+        var text = Resolve("ThemeTextBrush", isDark ? "#F0F0F0" : "#1F1F1F");
+        var codeBg = Resolve("ThemeCodeBackgroundBrush", isDark ? "#2A2A2A" : "#F2F2F2");
+        var border = Resolve("ThemeControlBorderBrush", isDark ? "#3C3C3C" : "#D0D0D0");
+        return (bg, text, codeBg, border);
+    }
+
+    private static string ToHex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    private void OnWysiwygMarkdownChanged(string markdown)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MarkdownPreviewViewModel vm) return;
+            vm.ApplyWysiwygPageEdit(RewriteImagePaths(markdown, vm.LoadedFilePath, toAbsolute: false));
+        });
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex ImageRefRegex =
+        new(@"!\[([^\]]*)\]\(([^)\s]+)(\s+""[^""]*"")?\)");
+
+    /// <summary>Rewrites relative <c>![alt](path)</c> image references to/from absolute
+    /// <c>file:///</c> URIs so the embedded WebView (which has no base path of its own) can
+    /// resolve them, while keeping saved markdown portable. Absolute URLs/data URIs pass through.</summary>
+    private static string RewriteImagePaths(string markdown, string? loadedFilePath, bool toAbsolute)
+    {
+        if (string.IsNullOrEmpty(markdown) || string.IsNullOrWhiteSpace(loadedFilePath))
+            return markdown;
+
+        var dir = Path.GetDirectoryName(loadedFilePath);
+        if (string.IsNullOrEmpty(dir)) return markdown;
+
+        return ImageRefRegex.Replace(markdown, m =>
+        {
+            var alt = m.Groups[1].Value;
+            var path = m.Groups[2].Value;
+            var title = m.Groups[3].Value;
+
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return m.Value;
+
+            if (toAbsolute)
+            {
+                if (path.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                    return m.Value;
+                try
+                {
+                    var full = Path.GetFullPath(Path.Combine(dir, Uri.UnescapeDataString(path)));
+                    var uri = new Uri(full).AbsoluteUri;
+                    return $"![{alt}]({uri}{title})";
+                }
+                catch
+                {
+                    return m.Value;
+                }
+            }
+
+            if (!path.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+                return m.Value;
+            try
+            {
+                var localPath = new Uri(path).LocalPath;
+                var rel = Path.GetRelativePath(dir, localPath).Replace('\\', '/');
+                return $"![{alt}]({rel}{title})";
+            }
+            catch
+            {
+                return m.Value;
+            }
+        });
+    }
+
+    // ── In-document search ──────────────────────────────────────────────────
+    // Operates on the full document (vm.MarkdownText) regardless of the active display mode, so
+    // it finds matches outside the currently-shown page too. What happens with a match depends
+    // on the mode: Raw Editor gets an exact text selection (ready to type the fix immediately);
+    // Rendered/WYSIWYG switch to the page containing it (both already page through the same
+    // CurrentPage), with WYSIWYG additionally highlighting the match via the browser's native
+    // find inside the WebView (see WysiwygMarkdownEditorControl.FindTextAsync).
+
+    private void OnSearchBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            PerformSearch(backward: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            if (DataContext is MarkdownPreviewViewModel vm) vm.CloseSearchCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void OnSearchNextClick(object? sender, RoutedEventArgs e) => PerformSearch(backward: false);
+    private void OnSearchPreviousClick(object? sender, RoutedEventArgs e) => PerformSearch(backward: true);
+
+    private void PerformSearch(bool backward)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        var query = vm.SearchQuery;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            vm.SearchStatusText = "";
+            return;
+        }
+
+        if (query != _lastSearchQuery)
+        {
+            _lastSearchQuery = query;
+            _lastSearchMatchStart = -1;
+        }
+
+        var fromIndex = _lastSearchMatchStart >= 0
+            ? (backward ? _lastSearchMatchStart : _lastSearchMatchStart + 1)
+            : (vm.IsRawEditorMode ? RawEditor.CaretIndex : 0);
+
+        var match = vm.FindInDocument(query, fromIndex, backward);
+        if (match is null)
+        {
+            vm.SearchStatusText = "Няма намерени резултати.";
+            _lastSearchMatchStart = -1;
+            return;
+        }
+
+        var (start, length) = match.Value;
+        _lastSearchMatchStart = start;
+        vm.SearchStatusText = "";
+
+        if (vm.IsRawEditorMode)
+        {
+            RawEditor.SelectionStart = start;
+            RawEditor.SelectionEnd = start + length;
+            RawEditor.CaretIndex = start;
+            RawEditor.Focus();
+            return;
+        }
+
+        var targetPage = vm.GetPageIndexForCharIndex(start);
+        if (targetPage != vm.CurrentPage)
+            vm.CurrentPage = targetPage;
+
+        if (vm.IsWysiwygMode && _wysiwygControl is IWysiwygEditorControl editor)
+            _ = editor.FindTextAsync(query);
     }
 
     // ── Table of contents: scroll the rendered preview to a clicked heading ─────────────────
@@ -528,7 +937,31 @@ public partial class MarkdownPreviewView : UserControl
     private async void OnAddToWordListClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MarkdownPreviewViewModel vm) return;
-        var text = await GetViewerSelectedTextAsync(vm);
+        await AddToWordListAsync(vm, await GetViewerSelectedTextAsync(vm));
+    }
+
+    private async void OnTranslateClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        await TranslateAsync(vm, await GetViewerSelectedTextAsync(vm));
+    }
+
+    private async void OnExplainClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        await ExplainAsync(vm, await GetViewerSelectedTextAsync(vm));
+    }
+
+    private async void OnSummarizeClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MarkdownPreviewViewModel vm) return;
+        await SummarizeAsync(vm, await GetViewerSelectedTextAsync(vm));
+    }
+
+    // Shared by the quick-action buttons above and the WYSIWYG right-click menu.
+
+    private static async Task AddToWordListAsync(MarkdownPreviewViewModel vm, string? text)
+    {
         if (string.IsNullOrWhiteSpace(text))
         {
             vm.StatusText = "Маркирай дума или фраза в прегледа, след което натисни 'Добави дума'.";
@@ -537,10 +970,8 @@ public partial class MarkdownPreviewView : UserControl
         await vm.AddToWordListAsync(text);
     }
 
-    private async void OnTranslateClick(object? sender, RoutedEventArgs e)
+    private static async Task TranslateAsync(MarkdownPreviewViewModel vm, string? text)
     {
-        if (DataContext is not MarkdownPreviewViewModel vm) return;
-        var text = await GetViewerSelectedTextAsync(vm);
         if (string.IsNullOrWhiteSpace(text))
         {
             vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Преведи'.";
@@ -549,10 +980,8 @@ public partial class MarkdownPreviewView : UserControl
         await vm.TranslateSelectionAsync(text);
     }
 
-    private async void OnExplainClick(object? sender, RoutedEventArgs e)
+    private static async Task ExplainAsync(MarkdownPreviewViewModel vm, string? text)
     {
-        if (DataContext is not MarkdownPreviewViewModel vm) return;
-        var text = await GetViewerSelectedTextAsync(vm);
         if (string.IsNullOrWhiteSpace(text))
         {
             vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Обясни'.";
@@ -565,10 +994,8 @@ public partial class MarkdownPreviewView : UserControl
         await vm.ExecuteChatActionAsync(prompt);
     }
 
-    private async void OnSummarizeClick(object? sender, RoutedEventArgs e)
+    private static async Task SummarizeAsync(MarkdownPreviewViewModel vm, string? text)
     {
-        if (DataContext is not MarkdownPreviewViewModel vm) return;
-        var text = await GetViewerSelectedTextAsync(vm);
         if (string.IsNullOrWhiteSpace(text))
         {
             vm.StatusText = "Маркирай текст в прегледа или в редактора, след което натисни 'Обобщи'.";
@@ -588,11 +1015,22 @@ public partial class MarkdownPreviewView : UserControl
     /// </summary>
     private async Task<string?> GetViewerSelectedTextAsync(MarkdownPreviewViewModel vm)
     {
-        // Edit mode — TextBox exposes SelectedText directly.
-        if (vm.IsEditMode)
+        // Raw editor mode — TextBox exposes SelectedText directly.
+        if (vm.IsRawEditorMode)
         {
             var sel = RawEditor.SelectedText;
             return string.IsNullOrEmpty(sel) ? null : sel;
+        }
+
+        // WYSIWYG mode — ask the embedded editor for its current selection.
+        if (vm.IsWysiwygMode)
+        {
+            if (_wysiwygControl is IWysiwygEditorControl editor)
+            {
+                var sel = await editor.GetSelectedTextAsync();
+                return string.IsNullOrEmpty(sel) ? null : sel;
+            }
+            return null;
         }
 
         // Strategy 1: Try SelectableTextBlock descendants (Avalonia built-in)

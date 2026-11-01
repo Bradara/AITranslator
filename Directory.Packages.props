@@ -25,6 +25,10 @@
         <PackageVersion Include="Markdig" Version="0.41.0" />
         <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
 
+        <!-- Desktop-only: WYSIWYG markdown editor in the Preview tab (embeds a WebView) -->
+        <PackageVersion Include="WebView.Avalonia" Version="11.0.0.1" />
+        <PackageVersion Include="WebView.Avalonia.Desktop" Version="11.0.0.1" />
+
         <PackageVersion Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.15" />
     </ItemGroup>
 </Project>

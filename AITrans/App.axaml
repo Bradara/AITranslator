@@ -9,6 +9,25 @@
         <local:ViewLocator/>
     </Application.DataTemplates>
 
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ThemeTextBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ThemeAccentBrush" Color="#1E88E5" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ThemeTextBrush" Color="#1F1F1F" />
+                    <SolidColorBrush x:Key="ThemeAccentBrush" Color="#1E88E5" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ThemeTextBrush" Color="#F0F0F0" />
+                    <SolidColorBrush x:Key="ThemeAccentBrush" Color="#1E88E5" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>

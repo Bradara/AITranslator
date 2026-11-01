@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Text;
 using Avalonia;
+using AvaloniaWebView;
+using Avalonia.WebView.Desktop;
+using AITrans.Desktop.Wysiwyg;
+using AITrans.Services;
 
 namespace AITrans.Desktop;
 
@@ -14,6 +18,12 @@ sealed class Program
     {
         // Enable non-UTF-8 encodings (windows-1251, iso-8859-1, etc.)
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+        // WYSIWYG markdown editor support (Desktop only) — must run before the Avalonia app
+        // starts so the first WebView control created can resolve its platform backend.
+        AvaloniaWebViewBuilder.Initialize(default);
+        WysiwygEditorProvider.Factory = () => new WysiwygMarkdownEditorControl();
+
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
@@ -22,5 +32,6 @@ sealed class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace()
+            .UseDesktopWebView();
 }

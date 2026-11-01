@@ -267,6 +267,12 @@ public partial class MarkdownView : UserControl
             vm.DeleteSelectedCommand.Execute(null);
     }
 
+    private void OnCopyOriginalToTranslationClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MarkdownViewModel vm)
+            vm.CopyOriginalToTranslationCommand.Execute(null);
+    }
+
     private void OnInsertRowBelowClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is MarkdownViewModel vm)

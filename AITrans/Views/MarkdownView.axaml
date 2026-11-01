@@ -139,6 +139,7 @@
                   <Border.ContextMenu>
                     <ContextMenu>
                       <MenuItem Header="📋 Копирай оригинал" Click="OnCopyOriginalClick" />
+                      <MenuItem Header="➡ Копирай в превод" Click="OnCopyOriginalToTranslationClick" />
                       <Separator />
                       <MenuItem Header="➕ Вмъкни ред отдолу" Click="OnInsertRowBelowClick" />
                       <MenuItem Header="🗑 Изтрий избраните редове" Click="OnDeleteSelectedClick" />

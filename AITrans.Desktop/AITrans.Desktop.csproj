@@ -24,6 +24,12 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="WebView.Avalonia" />
+    <PackageReference Include="WebView.Avalonia.Desktop" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Wysiwyg\Assets\*" />
   </ItemGroup>
 
   <ItemGroup>

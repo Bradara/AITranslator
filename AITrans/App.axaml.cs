@@ -15,6 +15,7 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        MarkdownStyleCompat.Register();
     }
 
     public override void OnFrameworkInitializationCompleted()

@@ -128,6 +128,7 @@ public class AppSettings
     public Dictionary<string, double> PreviewLastScrollRatioByFile { get; set; } = [];  // kept for backwards compat, no longer used for restore
     public Dictionary<string, double> PreviewLastScrollOffsetByFile { get; set; } = [];  // absolute pixel offset
     public Dictionary<string, int> PreviewLastPageByFile { get; set; } = [];
+    public Dictionary<string, double> WysiwygLastScrollOffsetByFile { get; set; } = [];  // scrollTop within the current page's content area
 
     // Translation progress by file/session
     public Dictionary<string, int> MarkdownLastTranslatedIndexByFile { get; set; } = [];

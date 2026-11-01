@@ -21,6 +21,17 @@ namespace AITrans.ViewModels;
 /// still raises PropertyChanged.</summary>
 public record HeadingNavRequest(int Level, string Title, int ParagraphIndex, int Nonce);
 
+/// <summary>The three ways the left panel can show the document.</summary>
+public enum PreviewDisplayMode
+{
+    /// <summary>Read-only formatted preview (Markdown.Avalonia).</summary>
+    Rendered,
+    /// <summary>Plain-text raw markdown editor.</summary>
+    RawEditor,
+    /// <summary>WYSIWYG editor (Desktop only — see <see cref="WysiwygEditorProvider"/>).</summary>
+    Wysiwyg
+}
+
 public partial class MarkdownPreviewViewModel : ViewModelBase
 {
     private readonly SpeechService _speechService;
@@ -149,7 +160,59 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     // ──────────────────────────────────────────────────────
 
     [ObservableProperty]
-    private bool _isEditMode = false;
+    private PreviewDisplayMode _displayMode = PreviewDisplayMode.Rendered;
+
+    public bool IsRenderedMode => DisplayMode == PreviewDisplayMode.Rendered;
+    public bool IsRawEditorMode => DisplayMode == PreviewDisplayMode.RawEditor;
+    public bool IsWysiwygMode => DisplayMode == PreviewDisplayMode.Wysiwyg;
+
+    /// <summary>True for the two modes that render one page of <see cref="_rawParagraphs"/> at a
+    /// time (Rendered and WYSIWYG) — drives whether the shared page-navigation bar is shown.</summary>
+    public bool IsPaginatedMode => IsRenderedMode || IsWysiwygMode;
+
+    /// <summary>True only when the Desktop head has registered a WYSIWYG editor factory —
+    /// drives whether the WYSIWYG button appears at all.</summary>
+    public bool IsWysiwygAvailable => WysiwygEditorProvider.IsAvailable;
+
+    partial void OnDisplayModeChanged(PreviewDisplayMode value)
+    {
+        OnPropertyChanged(nameof(IsRenderedMode));
+        OnPropertyChanged(nameof(IsRawEditorMode));
+        OnPropertyChanged(nameof(IsWysiwygMode));
+        OnPropertyChanged(nameof(IsPaginatedMode));
+    }
+
+    // ──────────────────────────────────────────────────────
+    //  Observable properties — in-document search
+    // ──────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private bool _isSearchOpen;
+
+    [ObservableProperty]
+    private string _searchQuery = "";
+
+    [ObservableProperty]
+    private string _searchStatusText = "";
+
+    partial void OnSearchQueryChanged(string value) => SearchStatusText = "";
+
+    [RelayCommand]
+    private void OpenSearch() => IsSearchOpen = true;
+
+    [RelayCommand]
+    private void ToggleSearch()
+    {
+        IsSearchOpen = !IsSearchOpen;
+        if (!IsSearchOpen) SearchStatusText = "";
+    }
+
+    [RelayCommand]
+    private void CloseSearch()
+    {
+        IsSearchOpen = false;
+        SearchStatusText = "";
+    }
 
     // ──────────────────────────────────────────────────────
     //  Observable properties — AI chat
@@ -679,9 +742,9 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ToggleEditMode()
+    private void SetDisplayMode(PreviewDisplayMode mode)
     {
-        IsEditMode = !IsEditMode;
+        DisplayMode = mode;
     }
 
     // ──────────────────────────────────────────────────────
@@ -721,7 +784,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         if (item is null) return;
 
-        IsEditMode = false;
+        DisplayMode = PreviewDisplayMode.Rendered;
 
         var perPage = Math.Max(1, ParagraphsPerPage);
         var targetPage = Math.Clamp(item.ParagraphIndex / perPage, 0, Math.Max(0, TotalPages - 1));
@@ -1119,6 +1182,94 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var key = GetPreviewKey();
         if (!string.IsNullOrWhiteSpace(key))
             _settingsService.Settings.PreviewLastPageByFile[key] = CurrentPage;
+    }
+
+    /// <summary>Merges an edited page's markdown (as produced by the WYSIWYG editor, which only
+    /// ever holds the current page's paragraphs — see <see cref="CurrentPageMarkdown"/>) back
+    /// into the full document, replacing just the paragraph range <see cref="CurrentPage"/>
+    /// covers. Setting <see cref="MarkdownText"/> re-derives <c>_rawParagraphs</c>/pagination
+    /// from the merged result, so an edit that adds or removes paragraphs on the page correctly
+    /// shifts later pages.</summary>
+    public void ApplyWysiwygPageEdit(string editedPageMarkdown)
+    {
+        if (_rawParagraphs.Count == 0)
+        {
+            MarkdownText = editedPageMarkdown;
+            return;
+        }
+
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        var startIdx = CurrentPage * perPage;
+        if (startIdx >= _rawParagraphs.Count) return;
+        var oldCount = Math.Min(perPage, _rawParagraphs.Count - startIdx);
+
+        var editedParagraphs = editedPageMarkdown.Replace("\r\n", "\n")
+            .Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        var merged = new List<string>(_rawParagraphs.Count - oldCount + editedParagraphs.Count);
+        merged.AddRange(_rawParagraphs.Take(startIdx));
+        merged.AddRange(editedParagraphs);
+        merged.AddRange(_rawParagraphs.Skip(startIdx + oldCount));
+
+        MarkdownText = string.Join("\n\n", merged);
+    }
+
+    /// <summary>The WYSIWYG content area's last known scroll position for the current file (CSS
+    /// px, within the current page — see CurrentPage/CurrentPageMarkdown), or 0 if none saved.</summary>
+    public double GetWysiwygScrollY()
+    {
+        var key = GetPreviewKey();
+        if (!string.IsNullOrWhiteSpace(key) && _settingsService.Settings.WysiwygLastScrollOffsetByFile.TryGetValue(key, out var y))
+            return y;
+        return 0;
+    }
+
+    public void SaveWysiwygScrollY(double y)
+    {
+        if (double.IsNaN(y) || double.IsInfinity(y) || y < 0) return;
+        var key = GetPreviewKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            _settingsService.Settings.WysiwygLastScrollOffsetByFile[key] = y;
+    }
+
+    /// <summary>Finds the next (or, if <paramref name="backward"/>, previous) case-insensitive
+    /// occurrence of <paramref name="query"/> in the full document, starting at
+    /// <paramref name="fromIndex"/> and wrapping around. Pure/read-only — the view decides what
+    /// to do with the match (select it, switch page, etc.) based on the active display mode.</summary>
+    public (int Start, int Length)? FindInDocument(string query, int fromIndex, bool backward)
+    {
+        if (string.IsNullOrEmpty(query)) return null;
+        var text = MarkdownText;
+        if (string.IsNullOrEmpty(text)) return null;
+
+        int idx;
+        if (!backward)
+        {
+            var start = Math.Clamp(fromIndex, 0, text.Length);
+            idx = text.IndexOf(query, start, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                idx = text.IndexOf(query, 0, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            var start = Math.Clamp(fromIndex - 1, -1, text.Length - 1);
+            idx = start >= 0 ? text.LastIndexOf(query, start, StringComparison.OrdinalIgnoreCase) : -1;
+            if (idx < 0)
+                idx = text.LastIndexOf(query, text.Length - 1, StringComparison.OrdinalIgnoreCase);
+        }
+        return idx < 0 ? null : (idx, query.Length);
+    }
+
+    /// <summary>Maps a char offset in <see cref="MarkdownText"/> to the paginated page that
+    /// contains it (see <see cref="CurrentPage"/>/<see cref="CurrentPageMarkdown"/>).</summary>
+    public int GetPageIndexForCharIndex(int charIndex)
+    {
+        var paraIdx = GetParagraphIndexFromChar(charIndex);
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        return Math.Clamp(paraIdx / perPage, 0, Math.Max(0, TotalPages - 1));
     }
 
     private static string StripMarkdown(string text)

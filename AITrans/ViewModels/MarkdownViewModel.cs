@@ -403,6 +403,29 @@ public partial class MarkdownViewModel : ViewModelBase
             ScrollToRow = Math.Min(firstRemoved, Paragraphs.Count - 1);
     }
 
+    /// <summary>Overwrites the translation of every selected row with its original text — for
+    /// paragraphs that must carry over to the translation unchanged.</summary>
+    [RelayCommand]
+    private void CopyOriginalToTranslation()
+    {
+        var indices = _selectedIndices
+            .Distinct()
+            .Where(i => i >= 0 && i < Paragraphs.Count)
+            .ToList();
+
+        if (indices.Count == 0)
+        {
+            StatusText = "No rows selected.";
+            return;
+        }
+
+        foreach (var idx in indices)
+            Paragraphs[idx].TranslatedText = Paragraphs[idx].OriginalText;
+
+        RecomputeSearchMatches(keepPosition: true);
+        StatusText = $"Copied original to translation in {indices.Count} row(s).";
+    }
+
     /// <summary>Inserts a new empty row right below the last selected row (or at the end,
     /// if nothing is selected/there are no rows yet).</summary>
     [RelayCommand]
@@ -689,13 +712,23 @@ public partial class MarkdownViewModel : ViewModelBase
             return string.Join("\n", lines).Trim();
         }
 
-        var parts = InputText
-            .Replace("\r\n", "\n")
-            .Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => CleanParagraph(p))
-            .Where(p => p.Length >= 3)
-            .Where(p => !System.Text.RegularExpressions.Regex.IsMatch(p, @"^[-*_|=\\s]+$"))
-            .ToList();
+        // Fenced code blocks (```...```) are kept verbatim as a single paragraph — blank lines,
+        // indentation and short lines like "}" inside them are part of the code.
+        var parts = new List<string>();
+        foreach (var (segment, isCode) in SplitFencedCodeBlocks(InputText.Replace("\r\n", "\n")))
+        {
+            if (isCode)
+            {
+                parts.Add(segment);
+                continue;
+            }
+
+            parts.AddRange(segment
+                .Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => CleanParagraph(p))
+                .Where(p => p.Length >= 3)
+                .Where(p => !System.Text.RegularExpressions.Regex.IsMatch(p, @"^[-*_|=\\s]+$")));
+        }
 
         var entries = new ObservableCollection<MarkdownEntry>();
         for (int i = 0; i < parts.Count; i++)
@@ -708,6 +741,49 @@ public partial class MarkdownViewModel : ViewModelBase
         PerformSearch();
         StatusText = $"Parsed {parts.Count} paragraphs.";
         OnPropertyChanged(nameof(HasParagraphs));
+    }
+
+    /// <summary>Splits text into alternating prose and fenced code block segments. A code block
+    /// starts with a line beginning with ``` and runs through the next line that is just ```
+    /// (or to the end of the text if it is never closed).</summary>
+    private static List<(string Text, bool IsCode)> SplitFencedCodeBlocks(string text)
+    {
+        var segments = new List<(string, bool)>();
+        var prose = new List<string>();
+        var lines = text.Split('\n');
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].TrimStart().StartsWith("```"))
+            {
+                prose.Add(lines[i]);
+                continue;
+            }
+
+            var end = i + 1;
+            while (end < lines.Length && lines[end].Trim() != "```")
+                end++;
+            end = Math.Min(end, lines.Length - 1);
+
+            if (prose.Count > 0)
+            {
+                segments.Add((string.Join("\n", prose), false));
+                prose.Clear();
+            }
+            segments.Add((string.Join("\n", lines[i..(end + 1)]).TrimEnd(), true));
+            i = end;
+        }
+
+        if (prose.Count > 0)
+            segments.Add((string.Join("\n", prose), false));
+        return segments;
+    }
+
+    /// <summary>True when the paragraph is a fenced code block (starts and ends with ```).</summary>
+    private static bool IsFencedCodeBlock(string text)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length >= 6 && trimmed.StartsWith("```") && trimmed.EndsWith("```");
     }
 
     [RelayCommand]
@@ -902,8 +978,10 @@ public partial class MarkdownViewModel : ViewModelBase
 
             // Paragraphs that are nothing but a link/image (e.g. a standalone ![](images/x.jpg))
             // have no translatable content — copy them through untouched instead of risking a
-            // provider mangling the URL or a placeholder round-trip.
-            var linkOnly = indexMap.Where(i => MarkdownLinkProtector.IsLinkOnly(Paragraphs[i].OriginalText)).ToList();
+            // provider mangling the URL or a placeholder round-trip. Fenced code blocks (```...```)
+            // are copied through the same way — code must not be translated.
+            var linkOnly = indexMap.Where(i => MarkdownLinkProtector.IsLinkOnly(Paragraphs[i].OriginalText)
+                                            || IsFencedCodeBlock(Paragraphs[i].OriginalText)).ToList();
             foreach (var i in linkOnly)
             {
                 Paragraphs[i].TranslatedText = Paragraphs[i].OriginalText;
