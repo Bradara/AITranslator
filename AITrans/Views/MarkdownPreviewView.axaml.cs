@@ -63,9 +63,13 @@ public partial class MarkdownPreviewView : UserControl
         if (DataContext is not MarkdownPreviewViewModel vm) return;
 
         if (_subscribedVm != null)
+        {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+            _subscribedVm.DocumentLoaded -= OnVmDocumentLoaded;
+        }
         _subscribedVm = vm;
         vm.PropertyChanged += OnVmPropertyChanged;
+        vm.DocumentLoaded += OnVmDocumentLoaded;
 
         // Intercept hyperlink clicks — route .md links to in-app navigation, web links to the browser
         if (MarkViewer.Engine is global::Markdown.Avalonia.Markdown mdEngine)
@@ -204,10 +208,19 @@ public partial class MarkdownPreviewView : UserControl
 
         // TOC click — locate the heading on the (possibly just-switched) page and scroll to it
         if (pe.PropertyName == nameof(MarkdownPreviewViewModel.HeadingNavRequest) && vm.HeadingNavRequest is { } navRequest)
-            Dispatcher.UIThread.Post(() => ScrollToHeading(navRequest), DispatcherPriority.Loaded);
+        {
+            if (vm.IsWysiwygMode)
+                FindInWysiwyg(navRequest.Title);
+            else
+                Dispatcher.UIThread.Post(() => ScrollToHeading(navRequest), DispatcherPriority.Loaded);
+        }
 
-        // Entering WYSIWYG mode, loading a new file, or paging while already in it — (re)populate
-        // the editor with the current page. Edits made inside the editor flow back through
+        // "Отбелязани" click — the view-model already switched to the mark's page
+        if (pe.PropertyName == nameof(MarkdownPreviewViewModel.MarkNavRequest) && vm.MarkNavRequest is { } markRequest)
+            GoToMark(vm, markRequest.Mark);
+
+        // Entering WYSIWYG mode or paging while already in it — (re)populate the editor with the
+        // current page (a file load is handled by OnVmDocumentLoaded, see there). Edits made inside the editor flow back through
         // ApplyWysiwygPageEdit (see OnWysiwygMarkdownChanged) without touching CurrentPage, so
         // this branch doesn't re-fire and stomp on content the user is actively editing.
         // Scroll position is only restored on the first two (resuming where the user left off) —
@@ -220,8 +233,6 @@ public partial class MarkdownPreviewView : UserControl
             else
                 DiscardWysiwygControl();
         }
-        else if (pe.PropertyName == nameof(MarkdownPreviewViewModel.LoadedFilePath) && vm.IsWysiwygMode)
-            EnsureWysiwygContent(vm, restoreScroll: true);
         else if (pe.PropertyName == nameof(MarkdownPreviewViewModel.CurrentPage) && vm.IsWysiwygMode)
             EnsureWysiwygContent(vm, restoreScroll: false);
 
@@ -233,6 +244,16 @@ public partial class MarkdownPreviewView : UserControl
     }
 
     // ── WYSIWYG editor (Desktop only) ───────────────────────────────────────
+
+    /// <summary>A file finished loading. Not keyed off LoadedFilePath's change: the view-model
+    /// sets the path BEFORE the content (so pagination resolves per-file settings), so pushing
+    /// then sent the previous file's page — and for a one-page file CurrentPage stays 0, so
+    /// nothing re-pushed afterwards and the editor kept stale or empty content.</summary>
+    private void OnVmDocumentLoaded(object? sender, System.EventArgs e)
+    {
+        if (sender is MarkdownPreviewViewModel vm && vm.IsWysiwygMode && IsVisible && VisualRoot is not null)
+            EnsureWysiwygContent(vm, restoreScroll: true);
+    }
 
     /// <summary>Called whenever this view (re)appears — attached, made visible, or handed its
     /// DataContext. Creates a fresh WYSIWYG control if that mode is active and none exists.</summary>
@@ -289,7 +310,7 @@ public partial class MarkdownPreviewView : UserControl
     {
         if (_wysiwygControl is not IWysiwygEditorControl ctrl) return;
         var scrollY = restoreScroll ? vm.GetWysiwygScrollY() : 0;
-        ctrl.SetMarkdown(RewriteImagePaths(vm.CurrentPageMarkdown, vm.LoadedFilePath, toAbsolute: true), scrollY);
+        ctrl.SetMarkdown(RewriteImagePaths(vm.GetWysiwygPageMarkdown(), vm.LoadedFilePath, toAbsolute: true), scrollY);
     }
 
     /// <summary>Unhooks and drops the current WYSIWYG control (see EnsureWysiwygContent for why it
@@ -361,6 +382,22 @@ public partial class MarkdownPreviewView : UserControl
                         if (!string.IsNullOrEmpty(text)) editor?.InsertText(text);
                     }),
                     new Separator(),
+                    Item("🖍 Маркирай  (Ctrl+Shift+H)", () =>
+                    {
+                        if (CanMark(vm, selectedText)) editor?.InsertText($"=={selectedText}==");
+                        return Task.CompletedTask;
+                    }, hasSelection),
+                    Item("📝 Маркирай с бележка…", async () =>
+                    {
+                        if (!CanMark(vm, selectedText)) return;
+                        var note = await PromptForNoteAsync(selectedText);
+                        if (note is null) return;
+                        if (string.IsNullOrEmpty(note))
+                            editor?.InsertText($"=={selectedText}==");
+                        else
+                            editor?.InsertMarkWithNote(selectedText, vm.NextFootnoteLabel(), note);
+                    }, hasSelection),
+                    new Separator(),
                     Item("🌐 Преведи", () => TranslateAsync(vm, selectedText), aiEnabled),
                     Item("💡 Обясни", () => ExplainAsync(vm, selectedText), aiEnabled),
                     Item("📝 Обобщи", () => SummarizeAsync(vm, selectedText), aiEnabled),
@@ -371,6 +408,68 @@ public partial class MarkdownPreviewView : UserControl
             };
             menu.Open(target);
         });
+    }
+
+    /// <summary>`==highlight==` is inline-only and doesn't nest, so a selection spanning
+    /// paragraphs or already containing a highlight can't be wrapped.</summary>
+    private static bool CanMark(MarkdownPreviewViewModel vm, string text)
+    {
+        if (text.Contains('\n') || text.Contains("=="))
+        {
+            vm.StatusText = "Маркирай текст в рамките на един абзац, без вече маркирани части.";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Asks for the note text of a mark's footnote. Returns null on cancel, "" for
+    /// "highlight without a note". A line break would end the one-line `[^n]: note` definition,
+    /// so it's normalized away.</summary>
+    private async Task<string?> PromptForNoteAsync(string markedText)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner) return null;
+
+        var input = new TextBox { AcceptsReturn = false, Watermark = "Текст на бележката", MinWidth = 380 };
+        string? result = null;
+        var dialog = new Window
+        {
+            Title = "Бележка",
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false,
+        };
+        var ok = new Button { Content = "OK", IsDefault = true, MinWidth = 80 };
+        var cancel = new Button { Content = "Отказ", IsCancel = true, MinWidth = 80 };
+        ok.Click += (_, _) => { result = input.Text ?? ""; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 10,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"„{(markedText.Length > 80 ? markedText[..80] + "…" : markedText)}“",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 380,
+                    FontStyle = FontStyle.Italic,
+                },
+                input,
+                new StackPanel
+                {
+                    Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { ok, cancel }
+                }
+            }
+        };
+        dialog.Opened += (_, _) => input.Focus();
+        await dialog.ShowDialog(owner);
+
+        return result?.Replace("\r", " ").Replace("\n", " ").Trim();
     }
 
     private async Task CopyToClipboardAsync(MarkdownPreviewViewModel vm, string text)
@@ -594,6 +693,58 @@ public partial class MarkdownPreviewView : UserControl
         if (point is null) return;
 
         var y = Math.Max(0, _previewScroll.Offset.Y + point.Value.Y - 10);
+        _previewScroll.Offset = new Vector(_previewScroll.Offset.X, y);
+    }
+
+    private void FindInWysiwyg(string text)
+    {
+        if (_wysiwygControl is IWysiwygEditorControl editor)
+            _ = editor.FindTextAsync(text);
+    }
+
+    private void GoToMark(MarkdownPreviewViewModel vm, MarkItem mark)
+    {
+        if (vm.IsWysiwygMode)
+        {
+            FindInWysiwyg(mark.Text);
+        }
+        else if (vm.IsRawEditorMode)
+        {
+            var text = RawEditor.Text ?? "";
+            var index = -1;
+            for (int i = 0; i <= mark.Occurrence; i++)
+            {
+                index = text.IndexOf(mark.Source, index + 1, StringComparison.Ordinal);
+                if (index < 0) return;
+            }
+            RawEditor.SelectionStart = index;
+            RawEditor.SelectionEnd = index + mark.Source.Length;
+            RawEditor.CaretIndex = index;
+            RawEditor.Focus();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(() => ScrollToText(mark.Text), DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>Rendered-mode counterpart of the WYSIWYG find: scrolls to the first text block on
+    /// the page containing <paramref name="text"/>, retrying while the page (re)renders.</summary>
+    private void ScrollToText(string text, int attemptsLeft = 15)
+    {
+        _previewScroll ??= FindPreviewScrollViewer();
+        var target = _previewScroll is null ? null : MarkViewer.GetVisualDescendants().OfType<Control>()
+            .FirstOrDefault(c => GetHeadingText(c) is { } t && NormalizeHeadingText(t).Contains(text, StringComparison.OrdinalIgnoreCase));
+        if (target is null)
+        {
+            if (attemptsLeft > 0)
+                Dispatcher.UIThread.Post(() => ScrollToText(text, attemptsLeft - 1), DispatcherPriority.Background);
+            return;
+        }
+
+        var point = target.TranslatePoint(new Point(0, 0), _previewScroll!);
+        if (point is null) return;
+        var y = Math.Max(0, _previewScroll!.Offset.Y + point.Value.Y - 40);
         _previewScroll.Offset = new Vector(_previewScroll.Offset.X, y);
     }
 

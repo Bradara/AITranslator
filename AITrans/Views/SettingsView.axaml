@@ -38,6 +38,26 @@
         <StackPanel Spacing="10" IsVisible="{Binding IsGitHubCopilot}">
           <TextBlock Text="GitHub Copilot" FontSize="16" FontWeight="SemiBold" />
           <StackPanel Spacing="4">
+            <TextBlock Text="Connection" />
+            <ComboBox ItemsSource="{Binding GitHubEndpointLabels}"
+                      SelectedItem="{Binding GitHubCopilotEndpointLabel}"
+                      Width="340"
+                      ToolTip.Tip="How translation and chat calls reach GitHub Copilot" />
+          </StackPanel>
+          <!-- Local Copilot CLI (official SDK) -->
+          <StackPanel Spacing="4" IsVisible="{Binding IsGitHubCopilotCliMode}">
+            <TextBlock Text="Copilot CLI" />
+            <TextBlock Text="Uses the GitHub Copilot CLI installed on this computer and its existing login (copilot login). Install: npm install -g @github/copilot"
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBox Text="{Binding GitHubCopilotCliPath}" Watermark="Auto-detect (PATH / npm / winget)" Width="260" />
+              <Button Content="Check CLI" Command="{Binding CheckCopilotCliCommand}"
+                      IsEnabled="{Binding !IsCheckingCopilotCli}" Padding="10,5" />
+            </StackPanel>
+            <TextBlock Text="{Binding GitHubCopilotCliStatus}" FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                       IsVisible="{Binding GitHubCopilotCliStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding IsGitHubCopilotApiMode}">
             <TextBlock Text="Account" />
             <TextBlock Text="GitHub no longer accepts pasted personal access tokens for Copilot — sign in with your GitHub account instead."
                        FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
@@ -63,13 +83,6 @@
                       ToolTip.Tip="Remove selected model from list" Padding="8,4" />
             </StackPanel>
           </StackPanel>
-          <StackPanel Spacing="4">
-            <TextBlock Text="Inference endpoint" />
-            <ComboBox ItemsSource="{Binding GitHubEndpointLabels}"
-                      SelectedItem="{Binding GitHubCopilotEndpointLabel}"
-                      Width="340"
-                      ToolTip.Tip="Which API endpoint to use for translation calls" />
-          </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Content="&#x1F504; Fetch models" Command="{Binding FetchGitHubModelsCommand}"
                     IsEnabled="{Binding !IsFetchingModels}" Padding="10,5" />
@@ -81,7 +94,9 @@
               <Button Content="&#x2795; Add" Command="{Binding AddCustomGitHubModelCommand}" Padding="8,4" />
             </StackPanel>
             <TextBlock Text="Preview models in VS Code Chat may not be available via direct API calls."
-                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" IsVisible="{Binding IsGitHubCopilotApiMode}" />
+            <TextBlock Text="Fetch models loads the CLI's current model catalog for your account."
+                       FontSize="11" Opacity="0.55" TextWrapping="Wrap" IsVisible="{Binding IsGitHubCopilotCliMode}" />
           </StackPanel>
         </StackPanel>
 
@@ -331,15 +346,6 @@
 
                 <Separator Margin="0,4" />
 
-        <!-- DeepL Free (free, unofficial endpoint) -->
-        <TextBlock Text="DeepL Free" FontSize="16" FontWeight="SemiBold" />
-        <StackPanel Spacing="4">
-          <ToggleSwitch IsChecked="{Binding UseDeepLFreeForMarkdown}"
-                        OnContent="Use DeepL Free for Markdown tab" OffContent="Use AI model for Markdown tab" />
-          <TextBlock Text="No account or API key required. Uses the same free, unofficial DeepL web endpoint as deepl.com/translator — undocumented, aggressively rate-limited per IP, and may stop working without notice. Keep the delay between requests below reasonably high to avoid being blocked."
-                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
-        </StackPanel>
-
       </StackPanel>
     </ScrollViewer>
 
@@ -397,7 +403,7 @@
         <StackPanel Spacing="4">
           <TextBlock Text="Delay between requests (ms)" />
           <NumericUpDown Value="{Binding DelayBetweenRequestsMs}" Minimum="0" Maximum="30000" Increment="500" Width="140" />
-          <TextBlock Text="GitHub free tier: 2000-3000 ms recommended. Also applied to DeepL every 10 requests, and between every request for Google Translate (free) and DeepL Free." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          <TextBlock Text="GitHub free tier: 2000-3000 ms recommended. Also applied to DeepL every 10 requests, and between every request for Google Translate (free)." FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock Text="Temperature" />

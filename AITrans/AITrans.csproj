@@ -4,6 +4,9 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- GitHub.Copilot.SDK would otherwise download and bundle its own CLI runtime; we use the
+         Copilot CLI the user already has installed (see CopilotCliService.ResolveCliPath). -->
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
   </PropertyGroup>
   
   <ItemGroup>
@@ -28,5 +31,6 @@
     <PackageReference Include="ReverseMarkdown" />
     <PackageReference Include="Markdig" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+    <PackageReference Include="GitHub.Copilot.SDK" />
   </ItemGroup>
 </Project>

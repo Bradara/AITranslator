@@ -33,6 +33,9 @@
     <Style Selector="Button.toc-item:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource ThemeAccentBrush}" />
     </Style>
+    <Style Selector="Button.toc-item TextBlock.mark-note">
+      <Setter Property="Foreground" Value="#1E88E5" />
+    </Style>
     <Style Selector="Button.toc-item:pressed">
       <Setter Property="Background" Value="#35808080" />
     </Style>
@@ -63,6 +66,10 @@
                     IsChecked="{Binding ShowToc, Mode=TwoWay}"
                     IsVisible="{Binding HasToc}"
                     ToolTip.Tip="Покажи/скрий навигация по заглавия (TOC)" />
+      <ToggleButton Content="🖍 Отбелязани"
+                    IsChecked="{Binding ShowMarks, Mode=TwoWay}"
+                    IsVisible="{Binding HasMarks}"
+                    ToolTip.Tip="Покажи/скрий списъка с маркирани места и бележки" />
       <Separator Width="1" Background="Gray" VerticalAlignment="Stretch" Margin="4,0" />
       <Button Content="A-" FontSize="14" FontWeight="Bold"
               Command="{Binding DecreaseFontSizeCommand}"
@@ -128,45 +135,74 @@
     <Grid ColumnDefinitions="Auto, 4, 6*, 4, 4*">
 
       <!-- ════════════════════════════════════════════════
-           TOC PANEL — clickable heading outline
+           SIDE PANEL — clickable heading outline + reader marks
            ════════════════════════════════════════════════ -->
       <Border Grid.Column="0"
               Width="230"
-              IsVisible="{Binding ShowToc}"
+              IsVisible="{Binding ShowSidePanel}"
               Margin="0,0,0,0"
               Padding="10,8"
               CornerRadius="8"
               BorderThickness="1"
               BorderBrush="Gray"
               Background="#14808080">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top"
-                     Text="📑 Съдържание"
-                     FontWeight="SemiBold"
-                     FontSize="13"
-                     Foreground="{DynamicResource ThemeTextBrush}"
-                     Margin="0,0,0,8" />
-          <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding TocItems}" x:CompileBindings="False">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <Button Classes="toc-item"
-                          Command="{Binding #Root.DataContext.NavigateToHeadingCommand}"
-                          CommandParameter="{Binding}">
-                    <TextBlock Text="{Binding DisplayTitle}"
-                               FontSize="{Binding FontSize}"
-                               TextWrapping="Wrap" />
-                  </Button>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
-        </DockPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <StackPanel IsVisible="{Binding ShowToc}">
+              <TextBlock Text="📑 Съдържание"
+                         FontWeight="SemiBold"
+                         FontSize="13"
+                         Foreground="{DynamicResource ThemeTextBrush}"
+                         Margin="0,0,0,8" />
+              <ItemsControl ItemsSource="{Binding TocItems}" x:CompileBindings="False">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Classes="toc-item"
+                            Command="{Binding #Root.DataContext.NavigateToHeadingCommand}"
+                            CommandParameter="{Binding}">
+                      <TextBlock Text="{Binding DisplayTitle}"
+                                 FontSize="{Binding FontSize}"
+                                 TextWrapping="Wrap" />
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <StackPanel IsVisible="{Binding ShowMarks}">
+              <Separator Margin="0,8" IsVisible="{Binding ShowToc}" />
+              <TextBlock Text="🖍 Отбелязани"
+                         FontWeight="SemiBold"
+                         FontSize="13"
+                         Foreground="{DynamicResource ThemeTextBrush}"
+                         Margin="0,0,0,8" />
+              <ItemsControl ItemsSource="{Binding Marks}" x:CompileBindings="False">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Classes="toc-item"
+                            Command="{Binding #Root.DataContext.NavigateToMarkCommand}"
+                            CommandParameter="{Binding}"
+                            ToolTip.Tip="{Binding Text}">
+                      <Border BorderThickness="3,0,0,0" BorderBrush="#E6C200" Padding="6,0,0,0">
+                        <StackPanel Spacing="2">
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12.5" TextWrapping="Wrap" />
+                          <TextBlock Classes="mark-note" Text="{Binding Note, StringFormat='📝 {0}'}"
+                                     IsVisible="{Binding HasNote}"
+                                     FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" />
+                        </StackPanel>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
       </Border>
 
       <GridSplitter Grid.Column="1" Background="Gray" ResizeDirection="Columns"
                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    IsVisible="{Binding ShowToc}" />
+                    IsVisible="{Binding ShowSidePanel}" />
 
       <!-- ════════════════════════════════════════════════
            LEFT PANEL — Preview / Edit toggle

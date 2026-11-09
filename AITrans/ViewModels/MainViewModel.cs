@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System;
+using System.Collections.ObjectModel;
 using AITrans.Models;
 using AITrans.Services;
 
@@ -8,6 +9,8 @@ public partial class MainViewModel : ViewModelBase
 {
     private readonly SettingsService _settingsService;
     private readonly ThemeService _themeService;
+
+    private readonly TranslationService _translationService;
 
     public SubtitlesViewModel SubtitlesTab { get; }
     public MarkdownViewModel MarkdownTab { get; }
@@ -21,7 +24,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _settingsService = settingsService;
         _themeService = themeService;
-        var translationService = new TranslationService();
+        var translationService = _translationService = new TranslationService();
         var speechService = new SpeechService();
         var cacheService = new CacheService();
         var epubExportService = new EpubExportService();
@@ -46,5 +49,12 @@ public partial class MainViewModel : ViewModelBase
         MarkdownTab.PersistSessionState();
         MarkdownPreviewTab.PersistSessionState();
         AiChatTab.PersistSessionState();
+    }
+
+    /// <summary>Stops the shared GitHub Copilot CLI child process, if one was started.</summary>
+    public void Shutdown()
+    {
+        try { _translationService.CopilotCli.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5)); }
+        catch { /* exiting anyway */ }
     }
 }

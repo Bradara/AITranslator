@@ -21,6 +21,10 @@ namespace AITrans.ViewModels;
 /// still raises PropertyChanged.</summary>
 public record HeadingNavRequest(int Level, string Title, int ParagraphIndex, int Nonce);
 
+/// <summary>Signals the view to bring a clicked reader mark into view (same Nonce trick as
+/// <see cref="HeadingNavRequest"/>).</summary>
+public record MarkNavRequest(MarkItem Mark, int Nonce);
+
 /// <summary>The three ways the left panel can show the document.</summary>
 public enum PreviewDisplayMode
 {
@@ -146,6 +150,28 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     [ObservableProperty]
     private HeadingNavRequest? _headingNavRequest;
 
+    partial void OnShowTocChanged(bool value) => OnPropertyChanged(nameof(ShowSidePanel));
+
+    // ──────────────────────────────────────────────────────
+    //  Observable properties — reader marks (==text==^[note])
+    // ──────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private ObservableCollection<MarkItem> _marks = [];
+
+    public bool HasMarks => Marks.Count > 0;
+
+    [ObservableProperty]
+    private bool _showMarks;
+
+    partial void OnShowMarksChanged(bool value) => OnPropertyChanged(nameof(ShowSidePanel));
+
+    /// <summary>The left side panel hosts both the TOC and the marks list.</summary>
+    public bool ShowSidePanel => ShowToc || ShowMarks;
+
+    [ObservableProperty]
+    private MarkNavRequest? _markNavRequest;
+
     // ──────────────────────────────────────────────────────
     //  Observable properties — word list
     // ──────────────────────────────────────────────────────
@@ -159,8 +185,12 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     //  Observable properties — preview/edit toggle
     // ──────────────────────────────────────────────────────
 
+    /// <summary>WYSIWYG where the platform has it (Desktop), the read-only preview elsewhere.</summary>
+    private static PreviewDisplayMode DefaultReadingMode =>
+        WysiwygEditorProvider.IsAvailable ? PreviewDisplayMode.Wysiwyg : PreviewDisplayMode.Rendered;
+
     [ObservableProperty]
-    private PreviewDisplayMode _displayMode = PreviewDisplayMode.Rendered;
+    private PreviewDisplayMode _displayMode = DefaultReadingMode;
 
     public bool IsRenderedMode => DisplayMode == PreviewDisplayMode.Rendered;
     public bool IsRawEditorMode => DisplayMode == PreviewDisplayMode.RawEditor;
@@ -238,7 +268,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English", "German", "French", "Spanish"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepL Free", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
 
     /// <summary>Shows which chat provider/model is active (read from settings at access time).</summary>
     public string ChatProviderModelDisplay
@@ -298,7 +328,6 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         { UseAzureTranslatorForMarkdown: true } => "Azure",
         { UseDeepLForMarkdown: true } => "DeepL",
-        { UseDeepLFreeForMarkdown: true } => "DeepL Free",
         { UseGoogleTranslateForMarkdown: true } => "Google",
         _ => "С ИИ"
     };
@@ -308,7 +337,6 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForMarkdown = value == "Azure";
         s.UseDeepLForMarkdown = value == "DeepL";
-        s.UseDeepLFreeForMarkdown = value == "DeepL Free";
         s.UseGoogleTranslateForMarkdown = value == "Google";
         _settingsService.Save();
     }
@@ -375,6 +403,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _yamlFrontMatter = frontMatter;
         MarkdownText = body;
         ShowToc = tocFlag && TocItems.Count > 0;
+        ShowMarks = Marks.Count > 0;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs.";
     }
 
@@ -446,11 +475,19 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         _loadingFile = false;
         HasUnsavedChanges = false;
         ShowToc = tocFlag && TocItems.Count > 0;
+        ShowMarks = Marks.Count > 0;
         StatusText = $"Loaded {_paragraphSpans.Count} paragraphs from {fileName}.";
         RestoreLastReadParagraph();
         LoadChatHistory(displayPath);
         ChatInput = "";
+        DocumentLoaded?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>Raised at the end of a file load, once path, content and pagination are all
+    /// final. The WYSIWYG view repopulates from this rather than from LoadedFilePath's change
+    /// notification, which fires before the new content is in place (and not at all when the
+    /// same file is reopened).</summary>
+    public event EventHandler? DocumentLoaded;
 
     public void PersistSessionState()
     {
@@ -784,14 +821,30 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     {
         if (item is null) return;
 
-        DisplayMode = PreviewDisplayMode.Rendered;
+        if (IsRawEditorMode)
+            DisplayMode = DefaultReadingMode;
 
+        GoToParagraphPage(item.ParagraphIndex);
+        HeadingNavRequest = new HeadingNavRequest(item.Level, item.Title, item.ParagraphIndex, ++_headingNavNonce);
+    }
+
+    /// <summary>Unlike TOC navigation this stays in the raw editor too — the view selects the
+    /// mark's source text there.</summary>
+    [RelayCommand]
+    private void NavigateToMark(MarkItem? item)
+    {
+        if (item is null) return;
+        if (!IsRawEditorMode)
+            GoToParagraphPage(item.ParagraphIndex);
+        MarkNavRequest = new MarkNavRequest(item, ++_headingNavNonce);
+    }
+
+    private void GoToParagraphPage(int paragraphIndex)
+    {
         var perPage = Math.Max(1, ParagraphsPerPage);
-        var targetPage = Math.Clamp(item.ParagraphIndex / perPage, 0, Math.Max(0, TotalPages - 1));
+        var targetPage = Math.Clamp(paragraphIndex / perPage, 0, Math.Max(0, TotalPages - 1));
         if (targetPage != CurrentPage)
             CurrentPage = targetPage;
-
-        HeadingNavRequest = new HeadingNavRequest(item.Level, item.Title, item.ParagraphIndex, ++_headingNavNonce);
     }
 
     // ──────────────────────────────────────────────────────
@@ -866,7 +919,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
 
     /// <summary>
     /// Translates the given selected text using the currently chosen provider (AI chat, DeepL,
-    /// DeepL Free, Azure Translator, or Google Translate). Non-AI providers post the result into
+    /// Azure Translator, or Google Translate). Non-AI providers post the result into
     /// the chat panel as a user/assistant exchange, matching the AI translate flow's UX.
     /// </summary>
     internal async Task TranslateSelectionAsync(string text)
@@ -919,8 +972,6 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
                     texts, ChatLanguage, settings.AzureTranslatorApiKey, settings.AzureTranslatorEndpoint,
                     settings.AzureTranslatorRegion, ct: _chatCts.Token),
                 "Google" => await _translationService.TranslateGoogleFreeBatchAsync(
-                    texts, ChatLanguage, ct: _chatCts.Token),
-                "DeepL Free" => await _translationService.TranslateDeeplFreeBatchAsync(
                     texts, ChatLanguage, ct: _chatCts.Token),
                 _ => texts
             };
@@ -1059,6 +1110,7 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         PlainText = sb.ToString();
 
         RebuildToc();
+        RebuildMarks();
     }
 
     private static readonly Regex HeadingLineRegex = new(@"^(#{1,6})\s+(.+?)\s*#*$");
@@ -1084,6 +1136,67 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasToc));
         if (TocItems.Count == 0)
             ShowToc = false;
+    }
+
+    // Same pattern the WYSIWYG editor highlights (see WysiwygMarkdownEditorControl): a single-line
+    // ==mark== followed by either a footnote reference [^label] (definition `[^label]: note`
+    // under the paragraph) or an inline note ^[note].
+    private static readonly Regex MarkRegex =
+        new(@"==(?<text>[^=\n]+?)==(?:\^\[(?<note>[^\]\n]*)\]|\[\^(?<label>[^\]\s]+)\])?");
+
+    private static readonly Regex FootnoteDefinitionRegex =
+        new(@"^\[\^(?<label>[^\]\s]+)\]:[ \t]*(?<note>.*)$", RegexOptions.Multiline);
+
+    private static readonly Regex NumericFootnoteLabelRegex = new(@"\[\^(\d+)\]");
+
+    /// <summary>The next free numeric footnote label in the document, for a new mark's note.</summary>
+    public string NextFootnoteLabel()
+    {
+        var max = NumericFootnoteLabelRegex.Matches(MarkdownText)
+            .Select(m => int.TryParse(m.Groups[1].Value, out var n) ? n : 0)
+            .DefaultIfEmpty(0)
+            .Max();
+        return (max + 1).ToString();
+    }
+
+    private void RebuildMarks()
+    {
+        var hadMarks = Marks.Count > 0;
+        var definitions = new Dictionary<string, string>();
+        foreach (var para in _rawParagraphs)
+            foreach (Match d in FootnoteDefinitionRegex.Matches(para))
+                definitions.TryAdd(d.Groups["label"].Value, d.Groups["note"].Value.Trim());
+
+        var items = new List<MarkItem>();
+        var seen = new Dictionary<string, int>();
+        for (int i = 0; i < _rawParagraphs.Count; i++)
+        {
+            var para = _rawParagraphs[i];
+            if (para.StartsWith("```") || para.StartsWith("~~~") || para.StartsWith("    ") || para.StartsWith('\t'))
+                continue;
+
+            foreach (Match m in MarkRegex.Matches(para))
+            {
+                var text = StripInlineMarkdown(m.Groups["text"].Value);
+                if (text.Length == 0) continue;
+
+                var source = $"=={m.Groups["text"].Value}==";
+                var occurrence = seen.TryGetValue(source, out var n) ? n : 0;
+                seen[source] = occurrence + 1;
+
+                var note = m.Groups["note"].Success ? m.Groups["note"].Value.Trim()
+                    : m.Groups["label"].Success ? definitions.GetValueOrDefault(m.Groups["label"].Value)
+                    : null;
+                items.Add(new MarkItem(text, source, note, i, occurrence));
+            }
+        }
+
+        Marks = new ObservableCollection<MarkItem>(items);
+        OnPropertyChanged(nameof(HasMarks));
+        if (Marks.Count == 0)
+            ShowMarks = false;
+        else if (!hadMarks && !_loadingFile)
+            ShowMarks = true; // the first mark just made — show the list it went into
     }
 
     private static string StripInlineMarkdown(string text)
@@ -1192,29 +1305,79 @@ public partial class MarkdownPreviewViewModel : ViewModelBase
     /// shifts later pages.</summary>
     public void ApplyWysiwygPageEdit(string editedPageMarkdown)
     {
-        if (_rawParagraphs.Count == 0)
-        {
-            MarkdownText = editedPageMarkdown;
-            return;
-        }
-
-        var perPage = Math.Max(1, ParagraphsPerPage);
-        var startIdx = CurrentPage * perPage;
-        if (startIdx >= _rawParagraphs.Count) return;
-        var oldCount = Math.Min(perPage, _rawParagraphs.Count - startIdx);
-
         var editedParagraphs = editedPageMarkdown.Replace("\r\n", "\n")
             .Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Trim())
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .ToList();
 
+        if (_rawParagraphs.Count == 0)
+        {
+            _wysiwygRangeStart = 0;
+            _wysiwygRangeCount = editedParagraphs.Count;
+            MarkdownText = editedPageMarkdown;
+            return;
+        }
+
+        // Replace exactly the paragraphs the editor holds — NOT a fixed ParagraphsPerPage-sized
+        // slice of the current page. Once an edit changes the page's paragraph count (e.g.
+        // "Маркирай с бележка" adds a `[^n]: note` definition paragraph), re-pagination pushes the
+        // page's last paragraph onto the next page, but the editor still shows it; replacing
+        // only perPage paragraphs on the following edit would then leave that paragraph both in
+        // the edited range and at the start of the next page — one more copy per edit.
+        int startIdx, oldCount;
+        if (_wysiwygRangeStart >= 0 && _wysiwygRangeStart + _wysiwygRangeCount <= _rawParagraphs.Count)
+        {
+            startIdx = _wysiwygRangeStart;
+            oldCount = _wysiwygRangeCount;
+        }
+        else
+        {
+            var perPage = Math.Max(1, ParagraphsPerPage);
+            startIdx = CurrentPage * perPage;
+            if (startIdx >= _rawParagraphs.Count) return;
+            oldCount = Math.Min(perPage, _rawParagraphs.Count - startIdx);
+        }
+
         var merged = new List<string>(_rawParagraphs.Count - oldCount + editedParagraphs.Count);
         merged.AddRange(_rawParagraphs.Take(startIdx));
         merged.AddRange(editedParagraphs);
         merged.AddRange(_rawParagraphs.Skip(startIdx + oldCount));
 
+        // The editor now holds exactly the edited paragraphs (same splitter as BuildPlainText,
+        // so the count matches what _rawParagraphs will contain for this range).
+        _wysiwygRangeStart = startIdx;
+        _wysiwygRangeCount = editedParagraphs.Count;
         MarkdownText = string.Join("\n\n", merged);
+    }
+
+    // The _rawParagraphs range the WYSIWYG editor currently shows — set when a page is pushed
+    // to it (GetWysiwygPageMarkdown) and kept in step by ApplyWysiwygPageEdit. Can differ from
+    // the CurrentPage slice after edits that add or remove paragraphs; -1 = nothing pushed yet.
+    private int _wysiwygRangeStart = -1;
+    private int _wysiwygRangeCount;
+
+    /// <summary>The current page's markdown for the WYSIWYG editor; also records which
+    /// paragraph range the editor will hold, so later edits replace exactly that range.</summary>
+    public string GetWysiwygPageMarkdown()
+    {
+        if (_rawParagraphs.Count == 0)
+        {
+            _wysiwygRangeStart = 0;
+            _wysiwygRangeCount = 0;
+            return MarkdownText;
+        }
+
+        var perPage = Math.Max(1, ParagraphsPerPage);
+        var startIdx = CurrentPage * perPage;
+        if (startIdx >= _rawParagraphs.Count)
+        {
+            _wysiwygRangeStart = -1;
+            return "";
+        }
+        _wysiwygRangeStart = startIdx;
+        _wysiwygRangeCount = Math.Min(perPage, _rawParagraphs.Count - startIdx);
+        return string.Join("\n\n", _rawParagraphs.GetRange(startIdx, _wysiwygRangeCount));
     }
 
     /// <summary>The WYSIWYG content area's last known scroll position for the current file (CSS

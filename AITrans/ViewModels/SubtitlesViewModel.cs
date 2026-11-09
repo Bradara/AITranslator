@@ -63,7 +63,7 @@ public partial class SubtitlesViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepL Free", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
 
     public bool HasEntries => Entries.Count > 0;
 
@@ -91,7 +91,6 @@ public partial class SubtitlesViewModel : ViewModelBase
     {
         { UseAzureTranslatorForSubtitles: true } => "Azure",
         { UseDeepLForSubtitles: true } => "DeepL",
-        { UseDeepLFreeForSubtitles: true } => "DeepL Free",
         { UseGoogleTranslateForSubtitles: true } => "Google",
         _ => "С ИИ"
     };
@@ -101,7 +100,6 @@ public partial class SubtitlesViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForSubtitles = value == "Azure";
         s.UseDeepLForSubtitles = value == "DeepL";
-        s.UseDeepLFreeForSubtitles = value == "DeepL Free";
         s.UseGoogleTranslateForSubtitles = value == "Google";
         _settingsService.Save();
     }
@@ -408,14 +406,6 @@ public partial class SubtitlesViewModel : ViewModelBase
             else if (settings.UseGoogleTranslateForSubtitles)
             {
                 var translations = await _translationService.TranslateGoogleFreeBatchAsync(
-                    texts, SelectedLanguage,
-                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
-
-                FillMissing(translations);
-            }
-            else if (settings.UseDeepLFreeForSubtitles)
-            {
-                var translations = await _translationService.TranslateDeeplFreeBatchAsync(
                     texts, SelectedLanguage,
                     progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 

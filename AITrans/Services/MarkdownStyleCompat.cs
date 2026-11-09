@@ -1,11 +1,15 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Data;
+using Avalonia.Data.Converters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Styling;
 using ColorDocument.Avalonia;
 using Markdown.Avalonia;
@@ -96,6 +100,7 @@ public static class MarkdownStyleCompat
 
     private static void PatchMultiBinding(MultiBinding multi)
     {
+        var patched = false;
         for (var i = 0; i < multi.Bindings.Count; i++)
         {
             var binding = multi.Bindings[i];
@@ -104,6 +109,24 @@ public static class MarkdownStyleCompat
                 .GetField("_value", BindingFlags.Instance | BindingFlags.NonPublic)?
                 .GetValue(binding);
             multi.Bindings[i] = new Binding { Source = value };
+            patched = true;
         }
+
+        if (patched && multi.Converter is { } inner and not BrushResultConverter)
+            multi.Converter = new BrushResultConverter(inner);
+    }
+
+    /// <summary>The library's DivideConverter falls back to returning its first input as-is when
+    /// the second isn't a color yet (e.g. a DynamicResource that hasn't resolved) — and that
+    /// first input is a raw <see cref="Color"/>, which Avalonia can't assign to the brush
+    /// property being set (InvalidCastException). Turn any such Color into a brush.</summary>
+    private sealed class BrushResultConverter(IMultiValueConverter inner) : IMultiValueConverter
+    {
+        public object? Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture) =>
+            inner.Convert(values, targetType, parameter, culture) switch
+            {
+                Color color => new SolidColorBrush(color),
+                var result => result
+            };
     }
 }

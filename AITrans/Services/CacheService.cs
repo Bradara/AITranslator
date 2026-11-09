@@ -113,13 +113,25 @@ public class CacheService
         cmd.ExecuteNonQuery();
 
         // Migrate: add rating column if it doesn't exist yet (safe for existing databases)
-        try
+        if (!ColumnExists(conn, "flashcards", "rating"))
         {
             using var migCmd = conn.CreateCommand();
             migCmd.CommandText = "ALTER TABLE flashcards ADD COLUMN rating INTEGER NOT NULL DEFAULT 0";
             migCmd.ExecuteNonQuery();
         }
-        catch { /* column already exists – ignore */ }
+    }
+
+    private static bool ColumnExists(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // ─── Subtitles ────────────────────────────────────────────────────────────

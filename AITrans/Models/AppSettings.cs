@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using AITrans.Services;
 
 namespace AITrans.Models;
 
@@ -112,10 +113,6 @@ public class AppSettings
     public bool UseGoogleTranslateForMarkdown { get; set; } = false;
     public bool UseGoogleTranslateForSubtitles { get; set; } = false;
 
-    // DeepL Free (free, unofficial endpoint — no account/API key required)
-    public bool UseDeepLFreeForMarkdown { get; set; } = false;
-    public bool UseDeepLFreeForSubtitles { get; set; } = false;
-
     // Azure Speech
     public string AzureSpeechApiKey { get; set; } = "";
     public string AzureSpeechRegion { get; set; } = "";
@@ -150,7 +147,7 @@ public class AppSettings
     public string ActiveApiKey => GetProviderApiKey(Provider);
 
     /// <summary>True when the active translation provider needs a non-empty API key to work.</summary>
-    public bool ActiveProviderRequiresApiKey => Provider is not AiProvider.OllamaLmStudio;
+    public bool ActiveProviderRequiresApiKey => ProviderRequiresApiKey(Provider);
 
     public string ActiveModel => Provider switch
     {
@@ -164,11 +161,20 @@ public class AppSettings
         _ => OpenAiModel
     };
 
-    // GitHub Copilot inference endpoint (selectable in Settings).
-    // GitHub Models (models.inference.ai.azure.com) was fully retired on 2026-07-30 —
-    // api.githubcopilot.com is the only endpoint still live.
-    public string GitHubCopilotInferenceUrl { get; set; } =
-        "https://api.githubcopilot.com/chat/completions";
+    // GitHub Copilot inference endpoint (selectable in Settings): either the local Copilot CLI
+    // driven through the official SDK (CopilotCliService.CliEndpoint — default on desktop), or
+    // api.githubcopilot.com directly with the device-flow token. GitHub Models
+    // (models.inference.ai.azure.com) was fully retired on 2026-07-30.
+    public string GitHubCopilotInferenceUrl { get; set; } = CopilotCliService.IsSupported
+        ? CopilotCliService.CliEndpoint
+        : "https://api.githubcopilot.com/chat/completions";
+
+    // Optional explicit path to the Copilot CLI executable; empty = auto-detect (PATH, npm, winget).
+    public string GitHubCopilotCliPath { get; set; } = "";
+
+    /// <summary>True when GitHub Copilot calls go through the locally installed Copilot CLI.</summary>
+    public bool UsesGitHubCopilotCli =>
+        CopilotCliService.IsSupported && CopilotCliService.IsCliEndpoint(GitHubCopilotInferenceUrl);
 
     public string ActiveEndpoint => GetProviderEndpoint(Provider);
 
@@ -198,6 +204,9 @@ public class AppSettings
             // Local providers can work without a key — treat as configured when endpoint is set
             if (ChatProvider == AiProvider.OllamaLmStudio)
                 return !string.IsNullOrWhiteSpace(OllamaLmStudioEndpoint) ? ChatProvider : Provider;
+            // The Copilot CLI brings its own login
+            if (ChatProvider == AiProvider.GitHubCopilot && UsesGitHubCopilotCli)
+                return ChatProvider;
             return string.IsNullOrWhiteSpace(chatKey) ? Provider : ChatProvider;
         }
     }
@@ -242,7 +251,12 @@ public class AppSettings
     };
 
     /// <summary>True when the given provider needs a non-empty API key to work.</summary>
-    public bool ProviderRequiresApiKey(AiProvider provider) => provider != AiProvider.OllamaLmStudio;
+    public bool ProviderRequiresApiKey(AiProvider provider) => provider switch
+    {
+        AiProvider.OllamaLmStudio => false,
+        AiProvider.GitHubCopilot  => !UsesGitHubCopilotCli,
+        _                         => true
+    };
 
     /// <summary>True when the given provider has whatever it needs (API key, or local endpoint) to be usable.</summary>
     public bool IsProviderConfigured(AiProvider provider) =>

@@ -24,6 +24,8 @@
         <PackageVersion Include="ReverseMarkdown" Version="3.17.0" />
         <PackageVersion Include="Markdig" Version="0.41.0" />
         <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+        <!-- Official GitHub Copilot SDK — drives the locally installed Copilot CLI over JSON-RPC -->
+        <PackageVersion Include="GitHub.Copilot.SDK" Version="1.0.28" />
 
         <!-- Desktop-only: WYSIWYG markdown editor in the Preview tab (embeds a WebView) -->
         <PackageVersion Include="WebView.Avalonia" Version="11.0.0.1" />

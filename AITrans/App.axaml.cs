@@ -34,7 +34,11 @@ public partial class App : Application
             {
                 DataContext = mainViewModel
             };
-            desktop.Exit += (_, _) => mainViewModel.SaveState();
+            desktop.Exit += (_, _) =>
+            {
+                mainViewModel.SaveState();
+                mainViewModel.Shutdown();
+            };
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
         {

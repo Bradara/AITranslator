@@ -43,6 +43,9 @@ public class TranslationService
     private const int ReasoningRetryDefaultTokens = 4096;
     private int _rotationIndex;
 
+    /// <summary>GitHub Copilot via the locally installed Copilot CLI (official SDK).</summary>
+    public CopilotCliService CopilotCli { get; } = new();
+
     /// <summary>
     /// Gets the next model to use, rotating through the list for OpenRouter auto-rotate.
     /// </summary>
@@ -267,142 +270,6 @@ public class TranslationService
         }
 
         return [.. results];
-    }
-
-    // ── DeepL Free (unofficial, no account/API key) ─────────────────────────
-    // Calls the same undocumented www2.deepl.com/jsonrpc endpoint that the
-    // deepl.com/translator web page itself uses (and that tools like
-    // QTranslate rely on) — no account or API key needed. It reproduces the
-    // browser request closely, including the "id"/timestamp/whitespace quirks
-    // DeepL's anti-bot check looks for. Undocumented, unofficial, and
-    // aggressively rate-limited per IP — keep a real delay between requests
-    // (delayBetweenRequestsMs) or DeepL will start returning 429s.
-    private long _deeplFreeRequestId = GetDeeplFreeRandomId();
-
-    private static long GetDeeplFreeRandomId() =>
-        Random.Shared.NextInt64(8_300_000, 8_399_998) * 1000;
-
-    // DeepL derives the request timestamp from the number of "i" characters in
-    // the text being translated — an odd but well-documented quirk of its
-    // anti-bot check that a plain "now" timestamp fails.
-    private static long GetDeeplFreeTimestamp(string text)
-    {
-        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var iCount = text.Count(c => c == 'i') + 1;
-        return ts - (ts % iCount) + iCount;
-    }
-
-    /// <summary>
-    /// Translate a batch of texts using the free, unofficial DeepL web endpoint
-    /// (www2.deepl.com/jsonrpc). No API key required. Each text is translated
-    /// individually so we get paragraph-level progress callbacks.
-    /// </summary>
-    public async Task<List<string>> TranslateDeeplFreeBatchAsync(
-        List<string> texts, string targetLanguage,
-        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
-        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
-    {
-        var langCode = ToDeepLLang(targetLanguage);
-        var results = new string[texts.Count];
-
-        for (int i = 0; i < texts.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (i > 0 && delayBetweenRequestsMs > 0)
-                await Task.Delay(delayBetweenRequestsMs, ct);
-
-            var translated = await TranslateDeeplFreeSingleAsync(texts[i], langCode, ct);
-            results[i] = translated;
-            onEntryTranslated?.Invoke(i, translated);
-            progress?.Report((i + 1) * 100 / texts.Count);
-        }
-
-        return [.. results];
-    }
-
-    private async Task<string> TranslateDeeplFreeSingleAsync(string text, string targetLangCode, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return "";
-
-        var id = Interlocked.Increment(ref _deeplFreeRequestId);
-        var timestamp = GetDeeplFreeTimestamp(text);
-
-        var payload = new
-        {
-            jsonrpc = "2.0",
-            method = "LMT_handle_jobs",
-            id,
-            @params = new
-            {
-                splitting = "newlines",
-                lang = new
-                {
-                    source_lang_user_selected = "auto",
-                    target_lang = targetLangCode
-                },
-                jobs = new[]
-                {
-                    new
-                    {
-                        kind = "default",
-                        sentences = new[] { new { text, id = 0, prefix = "" } },
-                        raw_en_context_before = Array.Empty<string>(),
-                        raw_en_context_after = Array.Empty<string>(),
-                        preferred_num_beams = 4
-                    }
-                },
-                priority = 1,
-                commonJobParams = new { mode = "translate" },
-                timestamp
-            }
-        };
-
-        var body = JsonSerializer.Serialize(payload);
-
-        // DeepL's anti-bot check inspects the exact whitespace around "method" in
-        // the raw request body; the real web client alternates between no space
-        // and one space before the colon based on this id-derived condition.
-        body = (id + 5) % 29 == 0 || (id + 3) % 13 == 0
-            ? body.Replace("\"method\":\"", "\"method\" : \"")
-            : body.Replace("\"method\":\"", "\"method\": \"");
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, "https://www2.deepl.com/jsonrpc?method=LMT_handle_jobs")
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json")
-        };
-        req.Headers.UserAgent.ParseAdd(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-        req.Headers.Accept.ParseAdd("*/*");
-        req.Headers.Referrer = new Uri("https://www.deepl.com/");
-        req.Headers.Add("Origin", "https://www.deepl.com");
-
-        using var resp = await HttpClient.SendAsync(req, ct);
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException(
-                $"DeepL Free error {resp.StatusCode}: {json} (unofficial endpoint — if this happens repeatedly, increase the delay between requests)");
-
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        if (!root.TryGetProperty("result", out var result))
-        {
-            var message = root.TryGetProperty("error", out var errEl) && errEl.TryGetProperty("message", out var m)
-                ? m.GetString()
-                : json;
-            throw new HttpRequestException(
-                $"DeepL Free error: {message} (unofficial endpoint — if this happens repeatedly, increase the delay between requests)");
-        }
-
-        return result
-            .GetProperty("translations")[0]
-            .GetProperty("beams")[0]
-            .GetProperty("sentences")[0]
-            .GetProperty("text")
-            .GetString() ?? "";
     }
 
     // Google Translate (free, unofficial translate_a/single endpoint) language code mapping
@@ -717,7 +584,40 @@ public class TranslationService
         if (!resp.IsSuccessStatusCode)
             throw new HttpRequestException(
                 $"GitHub Copilot API error ({(int)resp.StatusCode} {resp.StatusCode}): {json}");
-        ExtractModelsFromArray(json, models);
+
+        // The raw catalog also lists embedding/completion models, internal or superseded
+        // versions and policy-disabled ones that fail on /chat/completions — keep only chat
+        // models shown in Copilot's own model picker. Each check is skipped if its field is absent.
+        using var doc = JsonDocument.Parse(json);
+        var arr = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement
+            : doc.RootElement.TryGetProperty("data", out var d) ? d : default;
+        if (arr.ValueKind != JsonValueKind.Array)
+            return [];
+
+        foreach (var item in arr.EnumerateArray())
+        {
+            if (!item.TryGetProperty("id", out var idEl) || idEl.GetString() is not { Length: > 0 } id)
+                continue;
+
+            if (item.TryGetProperty("capabilities", out var caps)
+                && caps.TryGetProperty("type", out var typeEl)
+                && !string.Equals(typeEl.GetString(), "chat", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (item.TryGetProperty("model_picker_enabled", out var pickerEl)
+                && pickerEl.ValueKind == JsonValueKind.False)
+                continue;
+
+            if (item.TryGetProperty("policy", out var policy)
+                && policy.TryGetProperty("state", out var stateEl)
+                && string.Equals(stateEl.GetString(), "disabled", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // id may include a provider prefix (e.g. "openai/gpt-5" → "gpt-5")
+            var slash = id.LastIndexOf('/');
+            models.Add(slash >= 0 ? id[(slash + 1)..] : id);
+        }
 
         return models.OrderBy(m => m).ToList();
     }
@@ -843,25 +743,96 @@ public class TranslationService
         if (string.IsNullOrWhiteSpace(root))
             throw new ArgumentException("Endpoint cannot be empty.", nameof(endpoint));
 
-        var models = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var fetchedAny = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(8));
+        var token = cts.Token;
 
-        if (await TryFetchOpenAiModelsAsync(new Uri(new Uri(root), "v1/models"), models, ct))
-            fetchedAny = true;
+        var reached = false;
+        var idle = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (await TryFetchOpenAiModelsAsync(new Uri(new Uri(root), "models"), models, ct))
-            fetchedAny = true;
+        // Runs one probe; a failing/unsupported endpoint just means "try the next source".
+        async Task<List<string>?> Try(Func<HashSet<string>, Task<bool>> probe)
+        {
+            var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (await probe(found)) reached = true;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested
+                                       && ex is HttpRequestException or JsonException or OperationCanceledException)
+            {
+                return null;
+            }
+            return found.Count > 0 ? [.. found] : null;
+        }
 
-        if (await TryFetchLlamaCppPropsAsync(new Uri(new Uri(root), "props"), models, ct))
-            fetchedAny = true;
+        // 1) OpenAI-compatible listing. llama.cpp router mode reports a per-model status:
+        //    only "loaded" models count as active (the rest are kept as a last-resort fallback).
+        foreach (var path in new[] { "v1/models", "models" })
+        {
+            var found = await Try(s => TryFetchLlamaModelsAsync(new Uri(new Uri(root), path), s, idle, token));
+            if (found != null) return [.. found.OrderBy(m => m)];
+        }
 
-        if (await TryFetchOllamaTagsAsync(new Uri(new Uri(root), "api/tags"), models, ct))
-            fetchedAny = true;
+        // 2) llama.cpp single-model server.
+        var props = await Try(s => TryFetchLlamaCppPropsAsync(new Uri(new Uri(root), "props"), s, token));
+        if (props != null) return [.. props.OrderBy(m => m)];
 
-        if (!fetchedAny)
-            throw new HttpRequestException("Unable to fetch models from llama.cpp, LM Studio, or Ollama.");
+        // 3) Ollama: only models currently running in memory.
+        var running = await Try(s => TryFetchOllamaTagsAsync(new Uri(new Uri(root), "api/ps"), s, token));
+        if (running != null) return [.. running.OrderBy(m => m)];
 
-        return models.OrderBy(m => m).ToList();
+        // 4) Nothing is loaded: offer what is available so something can still be selected.
+        if (idle.Count > 0) return [.. idle.OrderBy(m => m)];
+        var installed = await Try(s => TryFetchOllamaTagsAsync(new Uri(new Uri(root), "api/tags"), s, token));
+        if (installed != null) return [.. installed.OrderBy(m => m)];
+
+        throw new HttpRequestException(reached
+            ? "The server is reachable but reports no models."
+            : "Unable to fetch models from llama.cpp, LM Studio, or Ollama.");
+    }
+
+    /// <summary>
+    /// Parses a /v1/models style response. llama.cpp router mode adds
+    /// "status": { "value": "loaded" | "unloaded" | "loading" } per model. Loaded models go to
+    /// <paramref name="active"/>, the rest to <paramref name="idle"/>. Servers without status
+    /// info (plain llama-server, LM Studio) report everything as active.
+    /// </summary>
+    private static async Task<bool> TryFetchLlamaModelsAsync(
+        Uri requestUri, HashSet<string> active, HashSet<string> idle, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        using var response = await HttpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            return false;
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        var arr = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement
+            : doc.RootElement.TryGetProperty("data", out var d) ? d : default;
+        if (arr.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var item in arr.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var id = item.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                ? idEl.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id)) continue;
+
+            string? status = null;
+            if (item.TryGetProperty("status", out var st))
+                status = st.ValueKind == JsonValueKind.Object && st.TryGetProperty("value", out var v) ? v.GetString()
+                       : st.ValueKind == JsonValueKind.String ? st.GetString() : null;
+
+            if (status == null || status.Equals("loaded", StringComparison.OrdinalIgnoreCase))
+                active.Add(id);
+            else
+                idle.Add(id);
+        }
+
+        return true;
     }
 
     private static string NormalizeModelEndpointRoot(string endpoint)
@@ -1165,6 +1136,9 @@ public class TranslationService
         string systemPrompt, string userMessage, string apiKey, string model, string endpoint,
         CancellationToken ct, AppSettings? settings = null, int? maxTokensOverride = null)
     {
+        if (CopilotCliService.IsCliEndpoint(endpoint))
+            return StripThinkingBlock(await CopilotCli.CompleteAsync(systemPrompt, userMessage, model, ct));
+
         if (settings?.Provider == AiProvider.Gemini)
             return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
 
@@ -1388,6 +1362,9 @@ public class TranslationService
     {
         if (provider == AiProvider.Gemini)
             return await CallGeminiChatWithHistoryAsync(systemPrompt, history, userMessage, apiKey, model, endpoint, temperature, ct);
+
+        if (CopilotCliService.IsCliEndpoint(endpoint))
+            return StripThinkingBlock(await CopilotCli.ChatAsync(systemPrompt, history, userMessage, model, ct));
 
         // Build OpenAI-compatible messages array
         var messages = new List<object>

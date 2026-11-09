@@ -48,6 +48,10 @@ public interface IWysiwygEditorControl
     /// <summary>Replaces the current selection with <paramref name="text"/> (or inserts it at the
     /// caret); an empty string deletes the selection.</summary>
     void InsertText(string text);
+
+    /// <summary>Replaces the selection with <c>==markedText==[^label]</c> and adds the footnote
+    /// definition <c>[^label]: note</c> as a paragraph right under the one holding the mark.</summary>
+    void InsertMarkWithNote(string markedText, string label, string note);
 }
 
 /// <summary>Registry the Desktop head populates at startup so the shared Preview view can create

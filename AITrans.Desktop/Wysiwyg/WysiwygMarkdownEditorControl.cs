@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using AvaloniaWebView;
@@ -28,6 +29,13 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
     // time), a one-shot queue would never re-send it, leaving the fresh page blank.
     private (string Markdown, double ScrollY)? _lastMarkdown;
     private (string Bg, string Text, string CodeBg, string Border, double FontSizePx)? _lastStyle;
+    private string? _pendingFind;
+
+    // Bumped on every SetMarkdown and stamped by the page onto each md/scroll message it posts.
+    // The page debounces edits (400 ms) and scroll reports (250 ms), so a message about the
+    // PREVIOUS content can still arrive after new content was pushed (e.g. opening another file
+    // right after typing) — without this check it would be merged into the new document.
+    private int _generation;
 
     public event Action<string>? MarkdownChanged;
     public event Action<double>? ScrollChanged;
@@ -58,8 +66,20 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
 
         // Harmlessly ignored until the control attaches to the visual tree (WebView replays
         // Navigate/NavigateToString against the then-current property value on attach).
-        _webView.HtmlContent = BuildHtml();
+        // Loaded from a file rather than HtmlContent: a page handed over as a string has no
+        // origin of its own, and WebView2 blocks it from loading file:/// URIs — i.e. every
+        // local image the document references (RewriteImagePaths makes them file:/// URIs).
+        _webView.Url = new Uri(HtmlFilePath.Value);
     }
+
+    private static readonly Lazy<string> HtmlFilePath = new(() =>
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "AITrans");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "wysiwyg-editor.html");
+        File.WriteAllText(path, BuildHtml());
+        return path;
+    });
 
     private void OnNavigationCompleted(object? sender, WebViewUrlLoadedEventArg e)
     {
@@ -69,6 +89,11 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
             PushMarkdown(md.Markdown, md.ScrollY);
         if (_lastStyle is { } style)
             PushStyle(style.Bg, style.Text, style.CodeBg, style.Border, style.FontSizePx);
+        if (_pendingFind is { } find)
+        {
+            _pendingFind = null;
+            _ = FindTextAsync(find);
+        }
     }
 
     // The page posts a small JSON envelope — {"t":"md","v":...} for edits, {"t":"scroll","y":...}
@@ -85,11 +110,23 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
             using var doc = JsonDocument.Parse(e.Message);
             var root = doc.RootElement;
             if (!root.TryGetProperty("t", out var tProp)) return;
-            switch (tProp.GetString())
+            var kind = tProp.GetString();
+            if (kind is "md" or "scroll"
+                && root.TryGetProperty("g", out var gProp) && gProp.TryGetInt32(out var g)
+                && g != _generation)
+                return; // stale — about content that has since been replaced
+            switch (kind)
             {
                 case "md":
                     if (root.TryGetProperty("v", out var vProp))
-                        MarkdownChanged?.Invoke(vProp.GetString() ?? "");
+                    {
+                        var edited = RestoreFootnoteDefinitions(vProp.GetString() ?? "");
+                        // Keep the copy a NativeControlHost recreation re-pushes in step with the
+                        // page — otherwise it would roll the editor back to pre-edit content
+                        // while the host already merged the edits.
+                        if (_lastMarkdown is { } last) _lastMarkdown = (edited, last.ScrollY);
+                        MarkdownChanged?.Invoke(edited);
+                    }
                     break;
                 case "scroll":
                     if (root.TryGetProperty("y", out var yProp) && yProp.TryGetDouble(out var y))
@@ -121,6 +158,7 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
 
     public void SetMarkdown(string markdown, double scrollY = 0)
     {
+        _generation++;
         _lastMarkdown = (markdown, scrollY);
         if (_ready) PushMarkdown(markdown, scrollY);
     }
@@ -129,7 +167,7 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
     {
         var json = JsonSerializer.Serialize(markdown);
         var scrollArg = scrollY.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        _ = _webView.ExecuteScriptAsync($"window.setMarkdownFromHost({json}, {scrollArg})");
+        _ = _webView.ExecuteScriptAsync($"window.setMarkdownFromHost({json}, {scrollArg}, {_generation})");
     }
 
     public async Task<string?> GetSelectedTextAsync()
@@ -142,17 +180,46 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
         catch { return result; }
     }
 
+    // Toast UI 2.x has no footnote support: a definition line `[^1]: note.` is shown as plain
+    // text and comes back from getMarkdown() escaped as `\[^1\]: note\.` — which would silently
+    // break every footnote in a page the moment it's edited here. Undo that escaping on
+    // definition lines only (confirmed by round-tripping in the real bundle; footnote
+    // references `[^1]` and inline notes `^[...]` already survive untouched).
+    private static readonly Regex EscapedFootnoteDefinition =
+        new(@"^\\\[\^(?<label>[^\]\r\n]+?)\\\]:(?<rest>.*)$", RegexOptions.Multiline);
+
+    private static readonly Regex MarkdownEscape = new(@"\\([\\`*_{}\[\]()#+\-.!>~|^=])");
+
+    private static string RestoreFootnoteDefinitions(string markdown) =>
+        EscapedFootnoteDefinition.Replace(markdown, m =>
+            $"[^{MarkdownEscape.Replace(m.Groups["label"].Value, "$1")}]:{MarkdownEscape.Replace(m.Groups["rest"].Value, "$1")}");
+
     public void InsertText(string text)
     {
         if (!_ready) return;
         _ = _webView.ExecuteScriptAsync($"window.insertTextFromHost({JsonSerializer.Serialize(text)})");
     }
 
+    public void InsertMarkWithNote(string markedText, string label, string note)
+    {
+        if (!_ready) return;
+        var args = string.Join(", ", new[] { markedText, label, note }.Select(s => JsonSerializer.Serialize(s)));
+        _ = _webView.ExecuteScriptAsync($"window.markWithNoteFromHost({args})");
+    }
+
     public async Task FindTextAsync(string query)
     {
-        if (!_ready || string.IsNullOrEmpty(query)) return;
+        if (string.IsNullOrEmpty(query)) return;
+        if (!_ready)
+        {
+            // Freshly created control (e.g. a TOC/mark click that also switched mode) — run it
+            // once the page has loaded and received its markdown.
+            _pendingFind = query;
+            return;
+        }
         var json = JsonSerializer.Serialize(query);
-        await _webView.ExecuteScriptAsync($"window.findInEditor({json})");
+        // Deferred a tick so it lands after setMarkdownFromHost's own setTimeout scroll restore.
+        await _webView.ExecuteScriptAsync($"setTimeout(function () {{ window.findInEditor({json}); }}, 30)");
     }
 
     public void ApplyHostStyle(string backgroundHex, string textHex, string codeBackgroundHex, string borderHex, double fontSizePx)
@@ -192,7 +259,16 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
         <html>
         <head>
         <meta charset="utf-8" />
-        <style>html, body { margin:0; padding:0; height:100%; } #editor { height:100vh; }</style>
+        <style>
+        html, body { margin:0; padding:0; height:100%; } #editor { height:100vh; }
+        ::highlight(md-mark) { background-color: rgba(255, 214, 0, 0.45); }
+        ::highlight(md-marker) { color: rgba(128, 128, 128, 0.7); }
+        ::highlight(md-note) { background-color: rgba(30, 136, 229, 0.18); color: #1E88E5; }
+        ::highlight(md-notedef) { color: #1E88E5; }
+        .md-tip { position: fixed; z-index: 1000; max-width: 360px; padding: 6px 10px; border-radius: 6px;
+                  font: 13px/1.4 sans-serif; white-space: pre-wrap; pointer-events: none; display: none;
+                  background: #333; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+        </style>
         </head>
         <body>
         <div id="editor"></div>
@@ -237,12 +313,132 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
                 usageStatistics: false
             });
 
+            // Reader marks: `==text==` (highlight), followed by either a footnote reference `[^1]`
+            // whose definition `[^1]: note` sits under the paragraph, or (older marks) an inline
+            // note `^[note]`. Toast UI 2.x renders all of it as plain text, and anything that
+            // changes the editor's DOM to style it (a custom renderer emitting <mark>/<span>) gets
+            // mangled by its sanitizer/converter on the way back to markdown — confirmed by
+            // round-tripping in the real bundle. The CSS Custom Highlight API paints text ranges
+            // without touching the DOM at all, so getMarkdown() stays byte-for-byte identical.
+            var markRe = /==([^=\n]+?)==(?:\^\[([^\]\n]*)\]|\[\^([^\]\s]+)\])?/g;
+            var noteRe = /\^\[[^\]\n]*\]|\[\^[^\]\s]+\]/g;
+            var defRe = /^\[\^([^\]\s]+)\]:\s*([\s\S]*)$/;
+            var markInfos = []; // { range, note } — what the hover tooltip looks up
+            function refreshHighlights() {
+                if (!window.CSS || !CSS.highlights) return;
+                var root = document.querySelector('.te-ww-container .tui-editor-contents');
+                if (!root) return;
+                function range(n, start, end) { var r = new Range(); r.setStart(n, start); r.setEnd(n, end); return r; }
+
+                var defs = {}, defRanges = [];
+                // Toast UI 2.x's WYSIWYG paragraphs are top-level <div>s, not <p>s.
+                Array.prototype.forEach.call(root.children, function (p) {
+                    var d = defRe.exec(p.textContent.trim());
+                    if (!d) return;
+                    defs[d[1]] = d[2].trim();
+                    var r = new Range(); r.selectNodeContents(p); defRanges.push(r);
+                });
+
+                var marks = [], markers = [], notes = [];
+                markInfos = [];
+                var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                var node, m;
+                while ((node = walker.nextNode())) {
+                    var s = node.data;
+                    markRe.lastIndex = 0;
+                    while ((m = markRe.exec(s))) {
+                        var end = m.index + 4 + m[1].length;
+                        var markRange = range(node, m.index, end);
+                        marks.push(markRange);
+                        markers.push(range(node, m.index, m.index + 2), range(node, end - 2, end));
+                        var note = m[2] !== undefined ? m[2] : (m[3] !== undefined ? defs[m[3]] : null);
+                        if (note) markInfos.push({ range: markRange, note: note });
+                    }
+                    noteRe.lastIndex = 0;
+                    while ((m = noteRe.exec(s))) notes.push(range(node, m.index, m.index + m[0].length));
+                }
+                CSS.highlights.set('md-mark', new Highlight(...marks));
+                CSS.highlights.set('md-marker', new Highlight(...markers));
+                CSS.highlights.set('md-note', new Highlight(...notes));
+                CSS.highlights.set('md-notedef', new Highlight(...defRanges));
+            }
+
+            // Hover tooltip with the mark's note. Highlights aren't elements, so there's nothing
+            // to hang a title= on — hit-test the pointer against the stored mark ranges instead.
+            var tip = document.createElement('div');
+            tip.className = 'md-tip';
+            document.body.appendChild(tip);
+            function hideTip() { tip.style.display = 'none'; }
+            document.addEventListener('mousemove', function (e) {
+                var hit = null, hitRect = null;
+                for (var i = 0; i < markInfos.length && !hit; i++) {
+                    var rects = markInfos[i].range.getClientRects();
+                    for (var j = 0; j < rects.length; j++) {
+                        var r = rects[j];
+                        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+                            hit = markInfos[i]; hitRect = r; break;
+                        }
+                    }
+                }
+                if (!hit) { hideTip(); return; }
+                if (tip.textContent !== hit.note) tip.textContent = hit.note;
+                tip.style.display = 'block';
+                var top = hitRect.top - tip.offsetHeight - 6;
+                if (top < 4) top = hitRect.bottom + 6;
+                var left = Math.min(Math.max(4, e.clientX - 20), window.innerWidth - tip.offsetWidth - 4);
+                tip.style.top = top + 'px';
+                tip.style.left = left + 'px';
+            });
+            document.addEventListener('mouseleave', hideTip);
+            document.addEventListener('scroll', hideTip, true);
+
+            // "Маркирай с бележка": `==text==[^label]` in place, and the definition
+            // `[^label]: note` as its own paragraph right under the one holding the mark (after
+            // any definitions already there) — so the note never interrupts the text itself.
+            var defLineRe = /^\\?\[\^[^\]\\]+\\?\]:/;
+            window.markWithNoteFromHost = function (text, label, note) {
+                var ed = window.__editor;
+                ed.focus();
+                var ref = '[^' + label + ']';
+                ed.insertText('==' + text + '==' + ref);
+                var lines = ed.getMarkdown().split('\n');
+                var i = -1;
+                for (var k = 0; k < lines.length; k++)
+                    if (lines[k].indexOf(ref) >= 0 && !defLineRe.test(lines[k])) { i = k; break; }
+                if (i < 0) return;
+                while (i + 1 < lines.length && lines[i + 1].trim() !== '') i++;
+                while (i + 2 < lines.length && lines[i + 1].trim() === '' && defLineRe.test(lines[i + 2])) {
+                    i += 2;
+                    while (i + 1 < lines.length && lines[i + 1].trim() !== '') i++;
+                }
+                lines.splice(i + 1, 0, '', ref + ': ' + note);
+                var el = getScrollEl();
+                var y = el ? el.scrollTop : 0;
+                ed.setMarkdown(lines.join('\n'), false);
+                setTimeout(function () { if (el) el.scrollTop = y; }, 0);
+            };
+            var highlightTimer = null;
+            function scheduleHighlights() {
+                clearTimeout(highlightTimer);
+                highlightTimer = setTimeout(refreshHighlights, 120);
+            }
+
+            // Ctrl+Shift+H — highlight the selection (single paragraph only; `==` can't span blocks).
+            document.addEventListener('keydown', function (e) {
+                if (!(e.ctrlKey && e.shiftKey && (e.key === 'H' || e.key === 'h'))) return;
+                e.preventDefault();
+                var text = window.__editor.getSelectedText();
+                if (text && text.indexOf('\n') < 0 && text.indexOf('==') < 0)
+                    window.__editor.insertText('==' + text + '==');
+            }, true);
+
             var debounceTimer = null;
             window.__editor.on('change', function () {
+                scheduleHighlights();
                 if (window.__suppressChange) return;
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(function () {
-                    window.chrome.webview.postMessage(JSON.stringify({ t: 'md', v: window.__editor.getMarkdown() }));
+                    window.chrome.webview.postMessage(JSON.stringify({ t: 'md', v: window.__editor.getMarkdown(), g: window.__gen }));
                 }, 400);
             });
 
@@ -264,7 +460,7 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
                 clearTimeout(scrollPostTimer);
                 scrollPostTimer = setTimeout(function () {
                     var el = getScrollEl();
-                    if (el) window.chrome.webview.postMessage(JSON.stringify({ t: 'scroll', y: el.scrollTop }));
+                    if (el) window.chrome.webview.postMessage(JSON.stringify({ t: 'scroll', y: el.scrollTop, g: window.__gen }));
                 }, 250);
 
                 // Mitigates an intermittent WebView2 compositing issue where the content area's
@@ -275,11 +471,18 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
                 repaintTimer = setTimeout(reapplyHostStyle, 150);
             }, true); // capture phase — scroll events don't bubble, so listen on the way down
 
-            window.setMarkdownFromHost = function (md, scrollY) {
+            window.__gen = 0;
+            window.setMarkdownFromHost = function (md, scrollY, gen) {
+                // Drop any still-pending edit/scroll report about the content being replaced
+                // (the host also discards stale ones by generation — see _generation).
+                clearTimeout(debounceTimer);
+                clearTimeout(scrollPostTimer);
+                if (typeof gen === 'number') window.__gen = gen;
                 window.__suppressChange = true;
                 // cursorToEnd=false — otherwise every page push (including the initial load)
                 // jumps the view to the bottom of whatever was just set.
                 window.__editor.setMarkdown(md, false);
+                scheduleHighlights();
                 if (scrollY) {
                     setTimeout(function () {
                         var el = getScrollEl();
@@ -352,7 +555,8 @@ public sealed class WysiwygMarkdownEditorControl : UserControl, IWysiwygEditorCo
                     '.tui-editor-contents blockquote { color: ' + s.text + ' !important; border-left-color: ' + s.border + ' !important; }' +
                     '.tui-editor-contents code, .tui-editor-contents pre { background: ' + s.codeBg + ' !important; color: ' + s.text + ' !important; }' +
                     '.tui-editor-contents hr, .tui-editor-contents table, .tui-editor-contents th, .tui-editor-contents td' +
-                    ' { border-color: ' + s.border + ' !important; }';
+                    ' { border-color: ' + s.border + ' !important; }' +
+                    '.md-tip { background: ' + s.text + '; color: ' + s.bg + '; }';
             }
 
             // Recreates the <style> node rather than mutating one in place — more reliably
