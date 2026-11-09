@@ -63,6 +63,14 @@ public class TranslationService
         return model;
     }
 
+    /// <summary>
+    /// Qwen-MT models (qwen-mt-turbo, qwen-mt-plus, qwen-mt-flash, ...) are dedicated
+    /// machine-translation models: they reject the "system" role and require
+    /// "translation_options" with the target language instead of a prompt.
+    /// </summary>
+    private static bool IsQwenMtModel(string? model) =>
+        model?.Trim().StartsWith("qwen-mt", StringComparison.OrdinalIgnoreCase) == true;
+
     private static bool IsLocalTranslationProvider(AppSettings? settings, string endpoint) =>
         settings?.OllamaLmStudioEndpoint?.Equals(endpoint, StringComparison.OrdinalIgnoreCase) == true;
 
@@ -957,7 +965,7 @@ public class TranslationService
                            "Only translate the text content. Do not add explanations.";
 
         return await CallApiWithRetryAsync(systemPrompt, text, apiKey, actualModel, endpoint,
-            settings, ct);
+            settings, ct, targetLanguage);
     }
 
     /// <summary>
@@ -1072,7 +1080,7 @@ public class TranslationService
                                "Only output the translated lines, nothing else.";
 
             var response = await CallApiWithRetryAsync(systemPrompt, numberedInput, apiKey, actualModel, endpoint,
-                settings, ct);
+                settings, ct, targetLanguage);
 
             foreach (var line in response.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
@@ -1095,13 +1103,13 @@ public class TranslationService
 
     private async Task<string> CallApiWithRetryAsync(
         string systemPrompt, string userMessage, string apiKey, string model, string endpoint,
-        AppSettings? settings = null, CancellationToken ct = default)
+        AppSettings? settings = null, CancellationToken ct = default, string? targetLanguage = null)
     {
         for (int attempt = 0; attempt <= MaxRetries; attempt++)
         {
             try
             {
-                return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
+                return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings, targetLanguage: targetLanguage);
             }
             catch (HttpRequestException ex) when (attempt < MaxRetries && (ex.Message.Contains("429") || ex.Message.Contains("404") || ex.Message.Contains("unknown_model")))
             {
@@ -1129,12 +1137,13 @@ public class TranslationService
             }
         }
 
-        return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
+        return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings, targetLanguage: targetLanguage);
     }
 
     private async Task<string> CallApiAsync(
         string systemPrompt, string userMessage, string apiKey, string model, string endpoint,
-        CancellationToken ct, AppSettings? settings = null, int? maxTokensOverride = null)
+        CancellationToken ct, AppSettings? settings = null, int? maxTokensOverride = null,
+        string? targetLanguage = null)
     {
         if (CopilotCliService.IsCliEndpoint(endpoint))
             return StripThinkingBlock(await CopilotCli.CompleteAsync(systemPrompt, userMessage, model, ct));
@@ -1142,7 +1151,13 @@ public class TranslationService
         if (settings?.Provider == AiProvider.Gemini)
             return await CallGeminiApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings);
 
-        var messages = IsLocalTranslationProvider(settings, endpoint) && string.IsNullOrWhiteSpace(systemPrompt)
+        var isQwenMt = IsQwenMtModel(model);
+        if (isQwenMt && string.IsNullOrWhiteSpace(targetLanguage))
+            throw new InvalidOperationException(
+                $"Model '{model}' is a dedicated translation model (Qwen-MT) and supports only text translation. " +
+                "Choose a general Qwen model (e.g. qwen-plus) for this feature.");
+
+        var messages = isQwenMt || (IsLocalTranslationProvider(settings, endpoint) && string.IsNullOrWhiteSpace(systemPrompt))
             ? new object[]
             {
                 new { role = "user", content = userMessage }
@@ -1166,10 +1181,19 @@ public class TranslationService
         if (maxTokens.HasValue)
             requestBody["max_tokens"] = maxTokens;
 
+        if (isQwenMt)
+        {
+            // Qwen-MT takes the language pair here instead of a system prompt.
+            requestBody["translation_options"] = new Dictionary<string, object?>
+            {
+                ["source_lang"] = "auto",
+                ["target_lang"] = targetLanguage
+            };
+        }
         // Qwen3 models default to "thinking" mode, which burns extra (billed) reasoning
         // tokens and — on some models — requires streaming to even work. Translation calls
         // here are non-streaming and don't need chain-of-thought, so disable it explicitly.
-        if (settings?.Provider == AiProvider.Qwen)
+        else if (settings?.Provider == AiProvider.Qwen)
             requestBody["enable_thinking"] = false;
 
         var json = JsonSerializer.Serialize(requestBody);
@@ -1211,7 +1235,7 @@ public class TranslationService
             var boosted = maxTokens.HasValue
                 ? Math.Min(maxTokens.Value * 4, ReasoningRetryMaxTokens)
                 : ReasoningRetryDefaultTokens;
-            return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings, boosted);
+            return await CallApiAsync(systemPrompt, userMessage, apiKey, model, endpoint, ct, settings, boosted, targetLanguage);
         }
 
         return content;
@@ -1365,6 +1389,11 @@ public class TranslationService
 
         if (CopilotCliService.IsCliEndpoint(endpoint))
             return StripThinkingBlock(await CopilotCli.ChatAsync(systemPrompt, history, userMessage, model, ct));
+
+        if (IsQwenMtModel(model))
+            throw new InvalidOperationException(
+                $"Model '{model}' is a dedicated translation model (Qwen-MT) and cannot be used for chat. " +
+                "Choose a general Qwen model (e.g. qwen-plus).");
 
         // Build OpenAI-compatible messages array
         var messages = new List<object>
