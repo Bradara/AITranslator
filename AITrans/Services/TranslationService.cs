@@ -16,10 +16,14 @@ namespace AITrans.Services;
 
 public class TranslationService
 {
+    // The default 100 s is too short for slow local models; user cancellation still works via ct.
+    // Must be declared before HttpClient: static fields initialize in textual order.
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(5);
+
     // SocketsHttpHandler (and SslClientAuthenticationOptions) aren't supported on browser-wasm,
     // where HTTP goes through the browser's own fetch/XHR stack instead.
     private static readonly HttpClient HttpClient = OperatingSystem.IsBrowser()
-        ? new HttpClient()
+        ? new HttpClient { Timeout = RequestTimeout }
         : new HttpClient(new SocketsHttpHandler
         {
             // Explicitly enable TLS 1.2 and 1.3 to avoid SSL handshake failures
@@ -30,7 +34,7 @@ public class TranslationService
                     | System.Security.Authentication.SslProtocols.Tls13
             },
             PooledConnectionLifetime = TimeSpan.FromMinutes(15),
-        });
+        }) { Timeout = RequestTimeout };
     private const int MaxRetries = 3;
     private const int LocalTranslationMinTokens = 512;
     private const int LocalTranslationMaxTokens = 4096;
@@ -70,6 +74,17 @@ public class TranslationService
     /// </summary>
     private static bool IsQwenMtModel(string? model) =>
         model?.Trim().StartsWith("qwen-mt", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// Turns off chain-of-thought for local reasoning models (Qwen3/3.5, etc.) served by
+    /// llama.cpp / LM Studio. Translation doesn't benefit from thinking, and on small models it
+    /// is slow and can burn the whole token budget before any answer is produced. Servers or
+    /// chat templates that don't know the option simply ignore it.
+    /// </summary>
+    private static void ApplyLocalNoThinking(Dictionary<string, object?> requestBody)
+    {
+        requestBody["chat_template_kwargs"] = new Dictionary<string, object?> { ["enable_thinking"] = false };
+    }
 
     private static bool IsLocalTranslationProvider(AppSettings? settings, string endpoint) =>
         settings?.OllamaLmStudioEndpoint?.Equals(endpoint, StringComparison.OrdinalIgnoreCase) == true;
@@ -1195,6 +1210,8 @@ public class TranslationService
         // here are non-streaming and don't need chain-of-thought, so disable it explicitly.
         else if (settings?.Provider == AiProvider.Qwen)
             requestBody["enable_thinking"] = false;
+        else if (settings?.Provider == AiProvider.OllamaLmStudio || IsLocalTranslationProvider(settings, endpoint))
+            ApplyLocalNoThinking(requestBody);
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
@@ -1425,6 +1442,8 @@ public class TranslationService
         // See CallApiAsync — same reason: skip billed "thinking" tokens on Qwen3 models.
         if (provider == AiProvider.Qwen)
             requestBody["enable_thinking"] = false;
+        else if (provider == AiProvider.OllamaLmStudio)
+            ApplyLocalNoThinking(requestBody);
 
         var json = JsonSerializer.Serialize(requestBody);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
