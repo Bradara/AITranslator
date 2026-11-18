@@ -63,7 +63,7 @@ public partial class SubtitlesViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepLX", "Azure", "Google"];
 
     public bool HasEntries => Entries.Count > 0;
 
@@ -91,6 +91,7 @@ public partial class SubtitlesViewModel : ViewModelBase
     {
         { UseAzureTranslatorForSubtitles: true } => "Azure",
         { UseDeepLForSubtitles: true } => "DeepL",
+        { UseDeepLXForSubtitles: true } => "DeepLX",
         { UseGoogleTranslateForSubtitles: true } => "Google",
         _ => "С ИИ"
     };
@@ -100,6 +101,7 @@ public partial class SubtitlesViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForSubtitles = value == "Azure";
         s.UseDeepLForSubtitles = value == "DeepL";
+        s.UseDeepLXForSubtitles = value == "DeepLX";
         s.UseGoogleTranslateForSubtitles = value == "Google";
         _settingsService.Save();
     }
@@ -399,6 +401,14 @@ public partial class SubtitlesViewModel : ViewModelBase
 
                 var translations = await _translationService.TranslateDeepLBatchAsync(
                     texts, SelectedLanguage, settings.DeepLApiKey, settings.DeepLFreeApi,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                FillMissing(translations);
+            }
+            else if (settings.UseDeepLXForSubtitles)
+            {
+                var translations = await _translationService.TranslateDeepLXBatchAsync(
+                    texts, SelectedLanguage, settings.DeepLXEndpoint, settings.DeepLXToken,
                     progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 
                 FillMissing(translations);

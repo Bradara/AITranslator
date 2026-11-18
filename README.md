@@ -106,7 +106,10 @@ adb install -r AITrans.Android/bin/Debug/net9.0-android/com.CompanyName.AITrans-
 - Groq
 - Ollama / LM Studio (локален модел)
 - Qwen
-- DeepL (отделен toggle за превод на Markdown/Subtitles)
+- DeepL (с API ключ — отделен избор за превод на Markdown/Subtitles)
+- DeepLX (без ключ — чрез локален DeepLX сървър, напр. `docker run -itd -p 1188:1188 ghcr.io/owo-network/deeplx:latest`; endpoint-ът се задава в Settings)
+- Azure AI Translator
+- Google Translate (без ключ — неофициален безплатен уеб endpoint)
 
 ## Известни ограничения по платформи
 

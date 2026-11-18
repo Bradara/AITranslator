@@ -175,6 +175,17 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _useDeepLForMarkdown = false;
 
+    // DeepLX — self-hosted DeepL proxy (no API key)
+    [ObservableProperty]
+    private string _deepLXEndpoint = TranslationService.DefaultDeepLXEndpoint;
+
+    // Optional DeepL Pro dl_session cookie (lifts the free-tier rate limit)
+    [ObservableProperty]
+    private string _deepLXToken = "";
+
+    [ObservableProperty]
+    private bool _useDeepLXForMarkdown = false;
+
     // Azure AI Translator
     [ObservableProperty]
     private string _azureTranslatorApiKey = "";
@@ -523,6 +534,10 @@ public partial class SettingsViewModel : ViewModelBase
         DeepLApiKey = s.DeepLApiKey;
         DeepLFreeApi = s.DeepLFreeApi;
         UseDeepLForMarkdown = s.UseDeepLForMarkdown;
+        DeepLXEndpoint = string.IsNullOrWhiteSpace(s.DeepLXEndpoint)
+            ? TranslationService.DefaultDeepLXEndpoint : s.DeepLXEndpoint;
+        DeepLXToken = s.DeepLXToken;
+        UseDeepLXForMarkdown = s.UseDeepLXForMarkdown;
         SelectedTheme = string.IsNullOrWhiteSpace(s.ThemeName) ? "System" : s.ThemeName;
         AzureTranslatorApiKey = s.AzureTranslatorApiKey;
         AzureTranslatorEndpoint = s.AzureTranslatorEndpoint;
@@ -1039,6 +1054,10 @@ public partial class SettingsViewModel : ViewModelBase
         s.DeepLApiKey = DeepLApiKey;
         s.DeepLFreeApi = DeepLFreeApi;
         s.UseDeepLForMarkdown = UseDeepLForMarkdown;
+        s.DeepLXEndpoint = string.IsNullOrWhiteSpace(DeepLXEndpoint)
+            ? TranslationService.DefaultDeepLXEndpoint : DeepLXEndpoint.Trim();
+        s.DeepLXToken = DeepLXToken.Trim();
+        s.UseDeepLXForMarkdown = UseDeepLXForMarkdown;
         s.AzureTranslatorApiKey = AzureTranslatorApiKey;
         s.AzureTranslatorEndpoint = AzureTranslatorEndpoint;
         s.AzureTranslatorRegion = AzureTranslatorRegion;

@@ -80,7 +80,7 @@ public sealed class EpubExportService
         var baseDirs = BuildBaseDirs(baseDir, fallbackBaseDirs, sourcePath);
 
         var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
-        var normalizedMarkdown = NormalizeMarkdownImageLinks(markdown ?? string.Empty);
+        var normalizedMarkdown = FlattenHeaderlessPipeRuns(NormalizeMarkdownImageLinks(markdown ?? string.Empty));
         var bodyHtml = Markdig.Markdown.ToHtml(normalizedMarkdown, pipeline);
 
         var doc = new HtmlDocument
@@ -765,6 +765,85 @@ blockquote { margin-left: 1em; padding-left: 1em; border-left: 3px solid #ccc; }
             return Path.GetFileNameWithoutExtension(sourcePath) ?? "Document";
 
         return "Document";
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex PipeSeparatorRowRegex = new(
+        @"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Runs of consecutive "| a | b |" lines with no header separator row (|---|---|) are not real
+    /// tables, but Markdig 0.41's pipe-table parser still nests one level per such line and throws
+    /// "Markdown elements in the input are too deeply nested" at roughly 40+ lines. Ebook imports
+    /// produce exactly this for tables of contents. Turn each such line into a plain paragraph
+    /// (cells joined with an em dash) so it renders as text instead of crashing the export.
+    /// Real tables (with a separator row) and fenced code blocks are left untouched.
+    /// </summary>
+    private static string FlattenHeaderlessPipeRuns(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown) || !markdown.Contains('|'))
+            return markdown;
+
+        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        var result = new List<string>(lines.Length);
+        var inFence = false;
+
+        for (var i = 0; i < lines.Length;)
+        {
+            var line = lines[i];
+            var trimmed = line.TrimStart();
+
+            if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~"))
+                inFence = !inFence;
+
+            if (inFence || !trimmed.StartsWith('|'))
+            {
+                result.Add(line);
+                i++;
+                continue;
+            }
+
+            var end = i;
+            while (end < lines.Length && lines[end].TrimStart().StartsWith('|'))
+                end++;
+
+            var hasSeparator = false;
+            for (var j = i; j < end; j++)
+            {
+                if (PipeSeparatorRowRegex.IsMatch(lines[j]) && lines[j].Contains('-'))
+                {
+                    hasSeparator = true;
+                    break;
+                }
+            }
+
+            if (hasSeparator)
+            {
+                for (var j = i; j < end; j++)
+                    result.Add(lines[j]);
+            }
+            else
+            {
+                if (result.Count > 0 && !string.IsNullOrWhiteSpace(result[^1]))
+                    result.Add(string.Empty);
+
+                for (var j = i; j < end; j++)
+                {
+                    var cells = lines[j].Trim().Trim('|')
+                        .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    var text = string.Join(" — ", cells);
+                    if (text.Length > 0)
+                    {
+                        result.Add(text);
+                        result.Add(string.Empty);
+                    }
+                }
+            }
+
+            i = end;
+        }
+
+        return string.Join("\n", result);
     }
 
     private static string NormalizeMarkdownImageLinks(string markdown)

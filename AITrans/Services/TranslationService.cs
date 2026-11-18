@@ -295,6 +295,151 @@ public class TranslationService
         return [.. results];
     }
 
+    // ── DeepLX (self-hosted, no API key) ────────────────────────────────────
+    // Calls a user-run DeepLX server (github.com/OwO-Network/DeepLX), the standard way to get
+    // keyless DeepL translation. DeepLX encapsulates the deepl.com web-app protocol (and keeps
+    // up with DeepL's changes) behind a simple REST endpoint, so the app talks to one stable URL
+    // (default http://localhost:1188/translate) instead of trying — and failing — to impersonate
+    // the DeepL website directly, which now returns a "please update" gate to unofficial clients.
+    //
+    // Request:  POST {endpoint}  { "text": "...", "source_lang": "auto", "target_lang": "BG" }
+    // Response: { "code": 200, "data": "<translation>", "alternatives": [...], ... }
+    //
+    // Optional DeepL Pro session (dl_session cookie): when supplied, the request goes to the Pro
+    // endpoint (/v1/translate) with a "Cookie: dl_session=..." header instead of the anonymous
+    // free endpoint, which lifts the free-tier IP rate limit. Per DeepLX, a dl_session that
+    // contains a '.' belongs to a free account and is rejected by the Pro endpoint.
+    public const string DefaultDeepLXEndpoint = "http://localhost:1188/translate";
+
+    // DeepLX expects a plain language code without a regional variant (e.g. "EN", not "EN-US").
+    private static string ToDeepLXLang(string language)
+    {
+        var code = ToDeepLLang(language);
+        var dash = code.IndexOf('-');
+        return dash > 0 ? code[..dash] : code;
+    }
+
+    // With a Pro session, DeepLX authenticates on its /v1/translate endpoint. If the user left the
+    // endpoint on the free /translate path, transparently upgrade it so the token is actually used.
+    private static string ResolveDeepLXEndpoint(string endpoint, bool hasSession)
+    {
+        if (!hasSession)
+            return endpoint;
+        if (endpoint.Contains("/v1/translate", StringComparison.OrdinalIgnoreCase)
+            || endpoint.Contains("/v2/translate", StringComparison.OrdinalIgnoreCase))
+            return endpoint;
+
+        var trimmed = endpoint.TrimEnd('/');
+        return trimmed.EndsWith("/translate", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[..^"/translate".Length] + "/v1/translate"
+            : trimmed + "/v1/translate";
+    }
+
+    private static string ExtractDeepLXText(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        // Surface a server-reported error (e.g. 429 from the upstream DeepL the server proxies).
+        if (root.TryGetProperty("code", out var codeEl)
+            && codeEl.ValueKind == JsonValueKind.Number
+            && codeEl.TryGetInt32(out var code) && code != 200)
+        {
+            var msg = root.TryGetProperty("message", out var m) ? m.GetString() : null;
+            throw new HttpRequestException($"DeepLX server returned code {code}" +
+                (string.IsNullOrWhiteSpace(msg) ? "." : $": {msg}"));
+        }
+
+        return root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.String
+            ? dataEl.GetString() ?? ""
+            : "";
+    }
+
+    /// <summary>
+    /// Translate a batch of texts through a self-hosted DeepLX server (no DeepL API key).
+    /// <paramref name="endpoint"/> is the DeepLX /translate URL (default
+    /// <see cref="DefaultDeepLXEndpoint"/>). <paramref name="sessionToken"/> is an optional DeepL
+    /// Pro <c>dl_session</c> cookie value: when set, the request uses the Pro endpoint
+    /// (/v1/translate) to bypass the free-tier IP rate limit. Each text is sent individually so we
+    /// get paragraph-level progress callbacks; empty/whitespace entries are skipped. Throws a clear
+    /// error if the server is unreachable or reports a non-200 code (e.g. upstream 429).
+    /// </summary>
+    public async Task<List<string>> TranslateDeepLXBatchAsync(
+        List<string> texts, string targetLanguage, string endpoint, string? sessionToken = null,
+        IProgress<int>? progress = null, Action<int, string>? onEntryTranslated = null,
+        CancellationToken ct = default, int delayBetweenRequestsMs = 0)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            endpoint = DefaultDeepLXEndpoint;
+
+        var session = sessionToken?.Trim();
+        var hasSession = !string.IsNullOrWhiteSpace(session);
+        endpoint = ResolveDeepLXEndpoint(endpoint, hasSession);
+
+        var langCode = ToDeepLXLang(targetLanguage);
+        var results = new string[texts.Count];
+
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(texts[i]))
+            {
+                results[i] = texts[i] ?? "";
+                onEntryTranslated?.Invoke(i, results[i]);
+                progress?.Report((i + 1) * 100 / texts.Count);
+                continue;
+            }
+
+            if (i > 0 && delayBetweenRequestsMs > 0)
+                await Task.Delay(delayBetweenRequestsMs, ct);
+
+            var payload = new { text = texts[i], source_lang = "auto", target_lang = langCode };
+            var body = JsonSerializer.Serialize(payload);
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+            if (hasSession)
+                req.Headers.TryAddWithoutValidation("Cookie", $"dl_session={session}");
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await HttpClient.SendAsync(req, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new HttpRequestException(
+                    $"Could not reach the DeepLX server at {endpoint}. Make sure DeepLX is running " +
+                    "(e.g. docker run -p 1188:1188 ghcr.io/owo-network/deeplx) and the endpoint in Settings is correct. " +
+                    $"Details: {ex.Message}", ex);
+            }
+
+            using (resp)
+            {
+                var json = await resp.Content.ReadAsStringAsync(ct);
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    throw new HttpRequestException(
+                        "DeepLX error 429: too many requests (upstream DeepL rate limit). " +
+                        "Increase the delay between requests in Settings and wait a while.");
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new HttpRequestException($"DeepLX error {(int)resp.StatusCode} {resp.StatusCode}: {json}");
+
+                var translated = ExtractDeepLXText(json);
+
+                results[i] = translated;
+                onEntryTranslated?.Invoke(i, translated);
+                progress?.Report((i + 1) * 100 / texts.Count);
+            }
+        }
+
+        return [.. results];
+    }
+
     // Google Translate (free, unofficial translate_a/single endpoint) language code mapping
     private static string ToGoogleTranslateLang(string language) => language.ToLowerInvariant() switch
     {

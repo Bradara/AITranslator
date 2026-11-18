@@ -102,6 +102,13 @@ public class AppSettings
     public bool UseDeepLForMarkdown { get; set; } = false;
     public bool UseDeepLForSubtitles { get; set; } = false;
 
+    // DeepLX — self-hosted DeepL proxy (no API key). github.com/OwO-Network/DeepLX
+    public string DeepLXEndpoint { get; set; } = TranslationService.DefaultDeepLXEndpoint;
+    // Optional DeepL Pro dl_session cookie — lifts the free-tier IP rate limit (uses /v1/translate).
+    public string DeepLXToken { get; set; } = "";
+    public bool UseDeepLXForMarkdown { get; set; } = false;
+    public bool UseDeepLXForSubtitles { get; set; } = false;
+
     // Azure AI Translator (Foundry / Cognitive Services)
     public string AzureTranslatorApiKey { get; set; } = "";
     public string AzureTranslatorEndpoint { get; set; } = "https://api.cognitive.microsofttranslator.com";

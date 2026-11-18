@@ -104,7 +104,7 @@ public partial class MarkdownViewModel : ViewModelBase
 
     public string[] AvailableLanguages { get; } = ["Bulgarian", "Russian", "English"];
 
-    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "Azure", "Google"];
+    public string[] AvailableTranslationProviders { get; } = ["С ИИ", "DeepL", "DeepLX", "Azure", "Google"];
 
     public bool HasParagraphs => Paragraphs.Count > 0;
 
@@ -126,6 +126,7 @@ public partial class MarkdownViewModel : ViewModelBase
     {
         { UseAzureTranslatorForMarkdown: true } => "Azure",
         { UseDeepLForMarkdown: true } => "DeepL",
+        { UseDeepLXForMarkdown: true } => "DeepLX",
         { UseGoogleTranslateForMarkdown: true } => "Google",
         _ => "С ИИ"
     };
@@ -135,6 +136,7 @@ public partial class MarkdownViewModel : ViewModelBase
         var s = _settingsService.Settings;
         s.UseAzureTranslatorForMarkdown = value == "Azure";
         s.UseDeepLForMarkdown = value == "DeepL";
+        s.UseDeepLXForMarkdown = value == "DeepLX";
         s.UseGoogleTranslateForMarkdown = value == "Google";
         _settingsService.Save();
     }
@@ -1049,6 +1051,19 @@ public partial class MarkdownViewModel : ViewModelBase
 
                 var translations = await _translationService.TranslateDeepLBatchAsync(
                     texts, SelectedLanguage, settings.DeepLApiKey, settings.DeepLFreeApi,
+                    progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
+
+                for (int i = 0; i < indexMap.Count && i < translations.Count; i++)
+                {
+                    var realIdx = indexMap[i];
+                    if (!string.IsNullOrEmpty(translations[i]) && string.IsNullOrEmpty(Paragraphs[realIdx].TranslatedText))
+                        Paragraphs[realIdx].TranslatedText = MarkdownLinkProtector.Restore(translations[i], linkMaps[i]);
+                }
+            }
+            else if (settings.UseDeepLXForMarkdown)
+            {
+                var translations = await _translationService.TranslateDeepLXBatchAsync(
+                    texts, SelectedLanguage, settings.DeepLXEndpoint, settings.DeepLXToken,
                     progressReporter, OnEntryTranslated, _cts.Token, settings.DelayBetweenRequestsMs);
 
                 for (int i = 0; i < indexMap.Count && i < translations.Count; i++)

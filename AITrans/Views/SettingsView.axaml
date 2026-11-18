@@ -303,6 +303,29 @@
           <TextBlock Text="When enabled, Markdown tab uses DeepL instead of the AI provider."
                      FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
         </StackPanel>
+                <Separator Margin="0,4" />
+
+        <!-- DeepLX (self-hosted DeepL proxy, no API key) -->
+        <TextBlock Text="DeepLX (no key)" FontSize="16" FontWeight="SemiBold" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Endpoint" />
+          <TextBox Text="{Binding DeepLXEndpoint}" Watermark="http://localhost:1188/translate" />
+          <TextBlock Text="Keyless DeepL via a self-hosted DeepLX server (github.com/OwO-Network/DeepLX). Run it once, e.g.: docker run -itd -p 1188:1188 ghcr.io/owo-network/deeplx:latest — then select &quot;DeepLX&quot; as the translation provider in the Markdown/Subtitles tabs."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="DeepL Pro session (dl_session) — optional" />
+          <TextBox Text="{Binding DeepLXToken}" PasswordChar="&#x2022;"
+                   Watermark="dl_session cookie value from a logged-in DeepL Pro account" />
+          <TextBlock Text="Optional. Lifts the free-tier IP rate limit (429 blocks) by routing through DeepLX's Pro endpoint (/v1/translate). Copy the dl_session cookie from a logged-in DeepL Pro account (DevTools → Application → Cookies → deepl.com). It expires and must be refreshed periodically. Note: a free-account session (value containing a &quot;.&quot;) is rejected, and this usage is against DeepL's terms — your account can be banned. Leave empty for the anonymous free endpoint."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <ToggleSwitch IsChecked="{Binding UseDeepLXForMarkdown}"
+                        OnContent="Use DeepLX for Markdown tab" OffContent="Use AI model for Markdown tab" />
+          <TextBlock Text="When enabled, Markdown tab uses the DeepLX server instead of the AI provider."
+                     FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
 
                 <Separator Margin="0,4" />
 
